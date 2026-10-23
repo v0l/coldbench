@@ -44,6 +44,14 @@ fn main() -> eframe::Result<()> {
             if let Some(t) = tab {
                 app.tab = t;
             }
+            // A PSBT named on the command line opens for review, which is how the suite hands
+            // one over.
+            if let Some(f) = args.iter().skip(1).find(|a| a.to_lowercase().ends_with(".psbt")) {
+                match std::fs::read(f) {
+                    Ok(b) => app.load_psbt(&b),
+                    Err(e) => app.say(false, format!("{f}: {e}")),
+                }
+            }
             if args.iter().any(|a| a == "--prompt") {
                 app.preview_prompt();
             }
