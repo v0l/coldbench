@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn an_empty_answer_still_gives_a_usable_rate() {
         let f = pick(&Default::default());
-        assert_eq!(f.fast, MIN_RATE);
+        assert_eq!(f.fast, 1.0, "no estimates falls back to 1 sat/vB");
     }
 }
 
