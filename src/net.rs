@@ -25,12 +25,32 @@ fn client(url: &str) -> esplora_client::BlockingClient {
     esplora_client::Builder::new(url.trim_end_matches('/')).timeout(30).build_blocking()
 }
 
+/// Say what went wrong in words, not as a debug dump of the HTTP library's error.
+fn tidy(url: &str, e: impl std::fmt::Display) -> String {
+    let raw = e.to_string();
+    let low = raw.to_lowercase();
+    let why = if low.contains("refused") {
+        "nothing is listening there".to_string()
+    } else if low.contains("timed out") || low.contains("timeout") {
+        "it did not answer in time".to_string()
+    } else if low.contains("dns") || low.contains("lookup") || low.contains("resolve") {
+        "the name does not resolve, check the url and the connection".to_string()
+    } else if low.contains("certificate") || low.contains("tls") {
+        "its TLS certificate was refused".to_string()
+    } else if let Some(i) = low.find("status: ") {
+        format!("it answered {}", raw[i + 8..].split([',', ' ']).next().unwrap_or("an error"))
+    } else {
+        raw
+    };
+    format!("cannot reach {url}: {why}")
+}
+
 pub fn scan(
     url: &str,
     request: FullScanRequest<KeychainKind>,
     stop_gap: usize,
 ) -> Result<FullScanResponse<KeychainKind>, String> {
-    client(url).full_scan(request, stop_gap, 4).map_err(|e| format!("{url}: {e}"))
+    client(url).full_scan(request, stop_gap, 4).map_err(|e| tidy(url, e))
 }
 
 pub fn broadcast(url: &str, tx: &Transaction) -> Result<(), String> {
@@ -50,7 +70,7 @@ pub struct Fees {
 /// because it comes back as 203 rather than 200.
 pub fn fees(url: &str) -> Result<Fees, String> {
     let at = format!("{}/fee-estimates", url.trim_end_matches('/'));
-    let r = minreq::get(&at).with_timeout(20).send().map_err(|e| format!("{url}: {e}"))?;
+    let r = minreq::get(&at).with_timeout(20).send().map_err(|e| tidy(url, e))?;
     if !(200..300).contains(&r.status_code) {
         return Err(format!("{url}: answered {}", r.status_code));
     }
@@ -75,6 +95,12 @@ fn pick(map: &std::collections::HashMap<u16, f64>) -> Fees {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_errors_read_as_words() {
+        let e = tidy("http://x", "Minreq(IoError(Os { code: 111, kind: ConnectionRefused, message: \"Connection refused\" }))");
+        assert_eq!(e, "cannot reach http://x: nothing is listening there");
+    }
 
     #[test]
     fn fee_targets_pick_the_nearest_estimate() {

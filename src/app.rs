@@ -426,6 +426,22 @@ impl App {
         });
     }
 
+    /// Show the device prompt as it looks while waiting for a PIN, with no device involved.
+    /// For screenshots and for checking the look, `wallet --prompt`.
+    pub fn preview_prompt(&mut self) {
+        self.device = Some(DeviceJob {
+            id: 0,
+            cancel: Cancel::default(),
+            purpose: Purpose::Sign,
+            kind: Some(Kind::Jade),
+            notice: Notice::PinOnDevice,
+            ask: None,
+            pin: String::new(),
+            passphrase: String::new(),
+            started: Instant::now(),
+        });
+    }
+
     fn poll(&mut self, ctx: &egui::Context) {
         for event in self.inbox.drain() {
             match event {

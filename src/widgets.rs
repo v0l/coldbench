@@ -13,17 +13,21 @@ pub fn rows(
     n: usize,
     height: f32,
     selected: &dyn Fn(usize) -> bool,
-    mut paint: impl FnMut(usize, &egui::Painter, Rect, &dyn Fn(usize) -> f32),
+    mut paint: impl FnMut(usize, &egui::Painter, Rect, &Cols),
 ) -> Option<usize> {
     let width = ui.available_width();
+    // Columns shrink together when the window is narrower than they want.
+    let want: f32 = columns.iter().map(|(_, w)| w).sum::<f32>() + 12.0;
+    let k = (width / want).min(1.0);
+    let scaled: Vec<(&str, f32)> = columns.iter().map(|(n, w)| (*n, w * k)).collect();
     let (head, _) = ui.allocate_exact_size(Vec2::new(width, ROW_H), Sense::hover());
-    table::header(&ui.painter_at(head), head, columns);
-    let starts: Vec<f32> = columns
+    table::header(&ui.painter_at(head), head, &scaled);
+    let starts: Vec<(f32, f32)> = scaled
         .iter()
-        .scan(head.left() + 6.0, |x, (_, w)| {
+        .scan(6.0, |x, (_, w)| {
             let at = *x;
             *x += w;
-            Some(at)
+            Some((at, *w))
         })
         .collect();
     let mut clicked = None;
@@ -42,9 +46,7 @@ pub fn rows(
                 } else if i % 2 == 1 {
                     p.rect_filled(r, 0.0, WELL.gamma_multiply(0.6));
                 }
-                let left = r.left();
-                let at = |c: usize| starts.get(c).copied().map(|x| x - head.left() + left).unwrap_or(left);
-                paint(i, &p, r, &at);
+                paint(i, &p, r, &Cols { starts: &starts });
                 if resp.clicked() {
                     clicked = Some(i);
                 }
@@ -52,6 +54,20 @@ pub fn rows(
         },
     );
     clicked
+}
+
+/// Where each column of a row sits, after shrinking to fit.
+pub struct Cols<'a> {
+    starts: &'a [(f32, f32)],
+}
+
+impl Cols<'_> {
+    /// Put `text` in column `c` of row `r`.
+    pub fn put(&self, p: &egui::Painter, r: Rect, c: usize, text: &str, colour: egui::Color32) {
+        if let Some((x, w)) = self.starts.get(c) {
+            table::cell(p, r, r.left() + x, *w, text, colour);
+        }
+    }
 }
 
 /// A QR code of `text`, `side` points square, drawn by `egui-qr` on its white ground.

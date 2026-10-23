@@ -44,6 +44,9 @@ fn main() -> eframe::Result<()> {
             if let Some(t) = tab {
                 app.tab = t;
             }
+            if args.iter().any(|a| a == "--prompt") {
+                app.preview_prompt();
+            }
             if args.iter().any(|a| a == "--add") {
                 app.new_wallet = Some(Default::default());
             }

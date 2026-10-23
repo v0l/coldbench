@@ -179,6 +179,11 @@ impl App {
             && let Some(Ask::Passphrase(tx)) = job.ask.take() {
                 let _ = tx.send(a);
             }
+        if cancel && job.id == 0 {
+            // The preview has no job behind it.
+            self.device = None;
+            return;
+        }
         if cancel {
             job.cancel.cancel();
             // Dropping a question answers it with a cancel.

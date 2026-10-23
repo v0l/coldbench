@@ -94,13 +94,13 @@ impl App {
             let picked = widgets::rows(ui, "txs", &cols, v.txs.len(), room.max(80.0), &|i| Some(v.txs[i].txid) == app.selected_tx, |i, p, r, at| {
                 let t = &v.txs[i];
                 let date = t.time.map(units::when).unwrap_or_else(|| "-".into());
-                cell(p, r, at(0), 130.0, &date, VALUE);
+                at.put(p, r, 0, &date, VALUE);
                 let label = if t.label.is_empty() { units::short(&t.txid.to_string(), 10) } else { t.label.clone() };
-                cell(p, r, at(1), 290.0, &label, if t.label.is_empty() { LEGEND } else { VALUE });
-                cell(p, r, at(2), 130.0, &signed(unit, t.delta), if t.delta < 0 { FAULT } else { OK });
-                cell(p, r, at(3), 130.0, &unit.format(t.balance), VALUE);
+                at.put(p, r, 1, &label, if t.label.is_empty() { LEGEND } else { VALUE });
+                at.put(p, r, 2, &signed(unit, t.delta), if t.delta < 0 { FAULT } else { OK });
+                at.put(p, r, 3, &unit.format(t.balance), VALUE);
                 let status = if t.confirmations == 0 { "unconfirmed".to_string() } else if t.confirmations < 6 { format!("{} conf", t.confirmations) } else { "confirmed".to_string() };
-                cell(p, r, at(4), 120.0, &status, if t.confirmations == 0 { WARN } else { LEGEND });
+                at.put(p, r, 4, &status, if t.confirmations == 0 { WARN } else { LEGEND });
             });
             if let Some(i) = picked {
                 app.selected_tx = Some(v.txs[i].txid);
@@ -465,11 +465,11 @@ impl App {
             let cols = [("path", 120.0), ("address", 380.0), ("label", 220.0), ("balance", 130.0), ("used", 60.0)];
             let picked = widgets::rows(ui, "addrs", &cols, rows.len(), room.max(80.0), &|i| selected.as_deref() == Some(&rows[i].address), |i, p, r, at| {
                 let a = &rows[i];
-                cell(p, r, at(0), 120.0, &format!("m/{}", a.path), LEGEND);
-                cell(p, r, at(1), 380.0, &a.address, VALUE);
-                cell(p, r, at(2), 220.0, &a.label, VALUE);
-                cell(p, r, at(3), 130.0, &unit.format(a.balance as i64), if a.balance > 0 { TRACE } else { LEGEND });
-                cell(p, r, at(4), 60.0, &a.received.to_string(), if a.received > 0 { VALUE } else { LEGEND });
+                at.put(p, r, 0, &format!("m/{}", a.path), LEGEND);
+                at.put(p, r, 1, &a.address, VALUE);
+                at.put(p, r, 2, &a.label, VALUE);
+                at.put(p, r, 3, &unit.format(a.balance as i64), if a.balance > 0 { TRACE } else { LEGEND });
+                at.put(p, r, 4, &a.received.to_string(), if a.received > 0 { VALUE } else { LEGEND });
             });
             if let Some(i) = picked {
                 app.selected_addr = Some(rows[i].address.clone());
@@ -540,7 +540,9 @@ impl App {
                 });
             });
             if v.utxos.is_empty() {
-                section(ui, "no coins", "this wallet holds nothing yet", |_| {});
+                section(ui, "no coins", "this wallet holds nothing yet", |ui| {
+                    note(ui, "Coins appear here once a payment to one of its addresses is seen. Select them to freeze them or to spend only those.", LEGEND);
+                });
                 return;
             }
             let single = (chosen.len() == 1).then(|| chosen[0].clone());
@@ -550,13 +552,13 @@ impl App {
                 let u = &v.utxos[i];
                 let on = app.selected_utxos.contains(&u.outpoint);
                 let mark = if u.frozen { "f" } else if on { "x" } else { "" };
-                cell(p, r, at(0), 26.0, mark, if u.frozen { WARN } else { READOUT });
-                cell(p, r, at(1), 200.0, &units::short(&u.outpoint.to_string(), 10), LEGEND);
-                cell(p, r, at(2), 330.0, &u.address, if u.change { LEGEND } else { VALUE });
-                cell(p, r, at(3), 200.0, &u.label, VALUE);
-                cell(p, r, at(4), 130.0, &unit.format(u.value as i64), if u.frozen { LEGEND } else { TRACE });
+                at.put(p, r, 0, mark, if u.frozen { WARN } else { READOUT });
+                at.put(p, r, 1, &units::short(&u.outpoint.to_string(), 10), LEGEND);
+                at.put(p, r, 2, &u.address, if u.change { LEGEND } else { VALUE });
+                at.put(p, r, 3, &u.label, VALUE);
+                at.put(p, r, 4, &unit.format(u.value as i64), if u.frozen { LEGEND } else { TRACE });
                 let c = if u.confirmations == 0 { "-".to_string() } else { u.confirmations.to_string() };
-                cell(p, r, at(5), 60.0, &c, if u.confirmations == 0 { WARN } else { LEGEND });
+                at.put(p, r, 5, &c, if u.confirmations == 0 { WARN } else { LEGEND });
             });
             if let Some(i) = picked {
                 let o = v.utxos[i].outpoint;

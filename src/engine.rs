@@ -314,7 +314,11 @@ impl Account {
                     outpoint: u.outpoint,
                     address: self.address_of(&u.txout.script_pubkey),
                     value: u.txout.value.to_sat(),
-                    label: self.label(&key).to_string(),
+                    // A coin without its own label takes the label of the payment that made it.
+                    label: Some(self.label(&key))
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or_else(|| self.label(&u.outpoint.txid.to_string()))
+                        .to_string(),
                     confirmations: height.map(|h| tip.saturating_sub(h) + 1).unwrap_or(0),
                     frozen: self.wallet.is_outpoint_locked(u.outpoint),
                     change: u.keychain == KeychainKind::Internal,
