@@ -1,0 +1,46 @@
+[package]
+name = "wallet"
+description = "Bitcoin wallet for hardware signers: Jade, Coldcard and Trezor, in the bench suite look"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/v0l/wallet"
+
+[workspace]
+members = [".", "crates/hww"]
+
+[dependencies]
+hww = { path = "crates/hww" }
+bdk_wallet = "3.2"
+bdk_esplora = { version = "0.22", features = ["blocking-https-rustls"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+dirs = "6"
+eframe = { version = "0.35", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+egui = "0.35"
+egui_bench = "0.5.4"
+egui-qr = { path = "../egui-qr", version = "0.2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+minreq = { version = "2.14", features = ["https-rustls"] }
+
+[dev-dependencies]
+bdk_wallet = { version = "3.2", features = ["std"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
