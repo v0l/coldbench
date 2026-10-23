@@ -135,3 +135,13 @@ mod live {
         assert!(r.spread.len() >= 3, "spread over {:?}", r.spread);
     }
 }
+
+#[test]
+#[ignore = "needs the network"]
+fn prices_come_from_a_public_server() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let t = std::time::Instant::now();
+    let p = rt.block_on(prices(&servers::public(Network::Bitcoin))).unwrap();
+    println!("{:?} in {:?}", p.rates.get("USD"), t.elapsed());
+    assert!(p.rates["USD"] > 1000.0);
+}

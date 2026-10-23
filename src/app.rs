@@ -1,7 +1,7 @@
 //! The window: wallets on the left, the open wallet's tabs in the middle, dialogs on top.
 
 use crate::engine::{Account, Built, Meta, network_name};
-use crate::net::{self, Fees};
+use crate::net::{self, Fees, Prices};
 use crate::units::{self, Unit};
 use crate::work::{self, Ask, Cancel, Event, Hub, Inbox, Op, Outcome};
 use bdk_wallet::bitcoin::bip32::Fingerprint;
@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 pub const SIDE_W: f32 = 270.0;
 const DEVICE_POLL: Duration = Duration::from_secs(3);
 const FEE_POLL: Duration = Duration::from_secs(300);
+const PRICE_POLL: Duration = Duration::from_secs(600);
 const NOTICE_FOR: Duration = Duration::from_secs(12);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,6 +54,10 @@ impl FeePick {
 pub struct Recipient {
     pub address: String,
     pub amount: String,
+    /// The amount as typed in the currency, while the amount is being entered in it; the
+    /// amount in the wallet's unit is what is sent and follows it.
+    pub fiat: String,
+    pub in_fiat: bool,
     pub max: bool,
 }
 
@@ -122,6 +127,25 @@ pub struct NewWallet {
     pub account: String,
     /// Index into the device list.
     pub device: Option<usize>,
+    /// Optional: encrypts the wallet file with it.
+    pub password: String,
+    pub confirm: String,
+    pub error: Option<String>,
+}
+
+/// The password boxes of the settings page.
+#[derive(Default)]
+pub struct PasswordEdit {
+    pub current: String,
+    pub new: String,
+    pub confirm: String,
+    pub error: Option<String>,
+}
+
+/// A locked wallet being opened.
+pub struct Unlock {
+    pub file: PathBuf,
+    pub password: String,
     pub error: Option<String>,
 }
 
@@ -133,6 +157,8 @@ impl Default for NewWallet {
             script: Script::Native,
             account: "0".into(),
             device: None,
+            password: String::new(),
+            confirm: String::new(),
             error: None,
         }
     }
@@ -151,6 +177,7 @@ pub enum Pending {
     Devices,
     Sync(PathBuf),
     Fees,
+    Prices,
     Broadcast { file: PathBuf, label: String },
 }
 
@@ -160,6 +187,9 @@ struct Config {
     unit: Unit,
     #[serde(default)]
     last: Option<PathBuf>,
+    /// The currency to show values in; none asks no one for a price.
+    #[serde(default)]
+    fiat: Option<String>,
 }
 
 /// What the screens show for the open wallet, rebuilt when the wallet changes.
@@ -188,6 +218,9 @@ pub struct App {
     pub devices: Vec<Found>,
     devices_at: Option<Instant>,
     pub fees: Option<Fees>,
+    pub prices: Option<Prices>,
+    pub prices_at: Option<(Instant, Network)>,
+    pub fiat: Option<String>,
     fees_at: Option<(Instant, Network)>,
 
     pub device: Option<DeviceJob>,
@@ -219,6 +252,10 @@ pub struct App {
     /// How the last sync of each wallet was spread.
     pub reports: HashMap<PathBuf, net::Report>,
     pub load_errors: Vec<String>,
+    /// Encrypted wallet files that have not been opened yet.
+    pub locked: Vec<PathBuf>,
+    pub unlock: Option<Unlock>,
+    pub pw: PasswordEdit,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -255,7 +292,7 @@ impl App {
             inbox,
             next: 1,
             pending: HashMap::new(),
-            dir,
+            dir: dir.clone(),
             accounts: Vec::new(),
             current: None,
             tab: Tab::Transactions,
@@ -264,6 +301,9 @@ impl App {
             devices: Vec::new(),
             devices_at: None,
             fees: None,
+            prices: Prices::load(&dir.join("prices.json")),
+            prices_at: None,
+            fiat: config.fiat.filter(|c| units::FIATS.contains(&c.as_str())),
             fees_at: None,
             device: None,
             new_wallet: None,
@@ -288,13 +328,44 @@ impl App {
             progress: HashMap::new(),
             reports: HashMap::new(),
             load_errors: Vec::new(),
+            locked: Vec::new(),
+            unlock: None,
+            pw: PasswordEdit::default(),
         };
         app.load_all();
-        let last = config.last.and_then(|p| app.accounts.iter().position(|a| a.file() == p));
+        let last = config.last.clone().and_then(|p| app.accounts.iter().position(|a| a.file() == p));
         if let Some(i) = last.or(if app.accounts.is_empty() { None } else { Some(0) }) {
             app.select(i);
         }
+        // An encrypted wallet that was the last one open asks for its password right away; with
+        // nothing else to show, so does the first one.
+        let ask = config.last.clone().filter(|p| app.locked.contains(p)).or(if app.accounts.is_empty() { app.locked.first().cloned() } else { None });
+        app.unlock = ask.map(|file| Unlock { file, password: String::new(), error: None });
         app
+    }
+
+    /// The price of a bitcoin in the chosen currency, for mainnet wallets only.
+    pub fn price(&self) -> Option<(f64, String)> {
+        if self.account()?.network() != Network::Bitcoin {
+            return None;
+        }
+        let code = self.fiat.clone()?;
+        let price = *self.prices.as_ref()?.rates.get(&code)?;
+        Some((price, code))
+    }
+
+    /// `text` with what `sats` are worth after it, when a currency is chosen and priced.
+    pub fn with_worth(&self, text: String, sats: i64) -> String {
+        match self.worth(sats) {
+            Some(w) => format!("{text}  ({w})"),
+            None => text,
+        }
+    }
+
+    /// What `sats` are worth now, when a currency is chosen and priced.
+    pub fn worth(&self, sats: i64) -> Option<String> {
+        let (price, code) = self.price()?;
+        Some(units::fiat(sats, price, &code))
     }
 
     pub fn wallets_dir(&self) -> PathBuf {
@@ -309,6 +380,10 @@ impl App {
             .collect();
         paths.sort();
         for p in paths {
+            if Account::is_locked(&p) {
+                self.locked.push(p);
+                continue;
+            }
             match Account::load(&p) {
                 Ok(a) => self.accounts.push(a),
                 Err(e) => self.load_errors.push(e),
@@ -320,6 +395,7 @@ impl App {
     pub fn save_config(&self) {
         let config = Config {
             unit: self.unit,
+            fiat: self.fiat.clone(),
             last: self.current.map(|i| self.accounts[i].file().to_path_buf()),
         };
         let _ = std::fs::create_dir_all(&self.dir);
@@ -357,6 +433,7 @@ impl App {
         self.server_edit = self.accounts[i].meta.server.clone();
         self.parallel_edit = self.accounts[i].meta.parallel.clamp(1, 32) as u32;
         self.name_edit = self.accounts[i].meta.name.clone();
+        self.pw = PasswordEdit::default();
         self.label_key.clear();
         self.views = None;
         self.save_config();
@@ -522,6 +599,19 @@ impl App {
                 self.hub.fees(id, servers, network);
             }
         }
+        // Prices only exist for mainnet coins, and are asked for only when a currency is chosen.
+        if let (Some(a), Some(_)) = (self.account(), &self.fiat)
+            && a.network() == Network::Bitcoin
+        {
+            let stale = self.prices_at.is_none_or(|(t, _)| t.elapsed() > PRICE_POLL);
+            if stale && !self.pending.values().any(|p| matches!(p, Pending::Prices)) {
+                let servers = a.meta.servers();
+                self.prices_at = Some((Instant::now(), Network::Bitcoin));
+                let id = self.id();
+                self.pending.insert(id, Pending::Prices);
+                self.hub.prices(id, servers);
+            }
+        }
         if self.notice.as_ref().is_some_and(|(_, _, t)| t.elapsed() > NOTICE_FOR) {
             self.notice = None;
         }
@@ -551,6 +641,10 @@ impl App {
                     }
             }
             (Pending::Fees, Outcome::Fees(f)) => self.fees = Some(f),
+            (Pending::Prices, Outcome::Prices(p)) => {
+                p.save(&self.dir.join("prices.json"));
+                self.prices = Some(p);
+            }
             (Pending::Broadcast { file, label }, Outcome::Broadcast(txid)) => {
                 let tx = self.review.as_ref().and_then(|r| r.tx.clone());
                 if let Some(a) = self.accounts.iter_mut().find(|a| a.file() == file)
@@ -574,7 +668,7 @@ impl App {
                 self.say(false, e);
             }
             (Pending::Sync(_), Outcome::Failed(e)) => self.say(false, format!("sync failed: {e}")),
-            (Pending::Fees, Outcome::Failed(_)) => {}
+            (Pending::Fees | Pending::Prices, Outcome::Failed(_)) => {}
             (_, Outcome::Failed(e)) => self.say(false, e),
             _ => {}
         }
@@ -616,7 +710,8 @@ impl App {
                     self.select(i);
                     return;
                 }
-                match Account::create(meta, &self.wallets_dir()) {
+                let password = Some(n.password.as_str()).filter(|p| !p.is_empty());
+                match Account::create_with(meta, &self.wallets_dir(), password) {
                     Ok(a) => {
                         self.accounts.push(a);
                         let i = self.accounts.len() - 1;
@@ -895,6 +990,31 @@ impl App {
                 pick = Some(i);
             }
         }
+        let mut open = None;
+        for p in &self.locked {
+            let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let r = card(
+                ui,
+                Some(ETCH),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        Line::new().legend(&name).tint(VALUE).elided(ui);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            chip(ui, "locked", WARN, true);
+                        });
+                    });
+                },
+                |ui| {
+                    Line::new().note("encrypted, click to unlock").size(10.5).show(ui);
+                },
+            );
+            if r.response.interact(egui::Sense::click()).clicked() {
+                open = Some(p.clone());
+            }
+        }
+        if let Some(file) = open {
+            self.unlock = Some(Unlock { file, password: String::new(), error: None });
+        }
         if let Some(i) = pick {
             self.select(i);
         }
@@ -923,6 +1043,9 @@ impl App {
                 },
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some((price, code)) = self.price() {
+                    Line::new().legend("price").measured(units::fiat(units::SATS_PER_BTC as i64, price, &code)).gap(14.0).show(ui).on_hover_text("one bitcoin");
+                }
                 if let Some(f) = &self.fees {
                     Line::new()
                         .legend("fees")
@@ -938,6 +1061,12 @@ impl App {
         ui.add_space(30.0);
         ui.vertical_centered(|ui| {
             ui.set_max_width(520.0);
+            if !self.locked.is_empty() {
+                section(ui, "wallets locked", "encrypted with a password", |ui| {
+                    note(ui, "Pick a wallet on the left and type its password to open it.", LEGEND);
+                });
+                return;
+            }
             section(ui, "no wallets yet", "a watch-only wallet for a hardware signer", |ui| {
                 note(
                     ui,
@@ -1022,7 +1151,7 @@ impl eframe::App for App {
         egui::Panel::bottom("footer")
             .frame(egui::Frame::NONE.fill(CHASSIS).inner_margin(Margin { left: 12, right: 12, top: 5, bottom: 5 }))
             .show(root, |ui| self.footer_bar(ui));
-        if !self.accounts.is_empty() {
+        if !self.accounts.is_empty() || !self.locked.is_empty() {
             egui::Panel::left("side")
                 .exact_size(SIDE_W)
                 .resizable(false)
@@ -1059,6 +1188,7 @@ impl eframe::App for App {
         self.device_modal(&ctx);
         self.message_modal(&ctx);
         self.remove_modal(&ctx);
+        self.unlock_modal(&ctx);
         self.browser_modal(&ctx);
         if egui_bench::drop::hovering(&ctx).is_some() {
             egui_bench::drop::overlay(&ctx, None, "drop to open", "a PSBT to review or add signatures", READOUT);

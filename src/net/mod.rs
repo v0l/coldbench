@@ -550,6 +550,49 @@ impl Pool {
     }
 }
 
+/// The price of a bitcoin from whichever Esplora server answers first. It needs no pool: no
+/// handshakes with servers that are never asked, and nothing about the wallet is sent, so a few
+/// servers are raced at once and the rest are only tried if all of those fail.
+pub async fn prices(servers: &[Server]) -> Result<Prices, String> {
+    let esplora: Vec<&Server> = servers.iter().filter(|s| s.protocol == Protocol::Esplora).collect();
+    if esplora.is_empty() {
+        return Err("none of the servers is an Esplora server, which is what gives prices".into());
+    }
+    let mut last = String::from("no server");
+    for group in esplora.chunks(3) {
+        let asks = group.iter().map(|s| {
+            let c = esplora::Esplora::with_timeout(&s.url, Duration::from_secs(6));
+            Box::pin(async move { c.prices().await.map_err(|e| e.to_string()) })
+        });
+        match futures::future::select_ok(asks).await {
+            Ok((rates, _)) if !rates.is_empty() => return Ok(Prices { rates }),
+            Ok(_) => last = "the server had no prices".into(),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+/// What one bitcoin costs, by ISO 4217 code.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Prices {
+    pub rates: BTreeMap<String, f64>,
+}
+
+impl Prices {
+    /// The last prices, kept between runs so there is one to show before the first answer.
+    pub fn load(file: &std::path::Path) -> Option<Prices> {
+        let rates = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+        Some(Prices { rates })
+    }
+
+    pub fn save(&self, file: &std::path::Path) {
+        if let Ok(t) = serde_json::to_string(&self.rates) {
+            let _ = std::fs::write(file, t);
+        }
+    }
+}
+
 /// Hash `txid` up its branch to the merkle root.
 pub fn merkle_root(txid: Txid, branch: &[Txid], pos: u32) -> TxMerkleNode {
     let mut h = txid.to_byte_array();

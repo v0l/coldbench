@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0] - 2026-10-23
+
+- Wallet encryption at rest, as Sparrow has: set a password in Settings, or when adding a
+  wallet, and the file is sealed with ChaCha20-Poly1305 under an Argon2id key (64 MiB). The
+  xpub, labels and history are unreadable without it. Locked wallets show in the side list and
+  ask for the password on opening; it can be changed or removed in Settings. There is no
+  recovery: a forgotten password means adding the wallet again from the device.
+- Fiat prices: pick a currency in Settings (USD, EUR, GBP, CAD, CHF, AUD, JPY) and the wallet
+  loads the price from mempool.space-style servers, racing a few at once, every ten minutes.
+  The last price is kept between runs. Off by default, so nothing asks for a price until you
+  choose one; mainnet only.
+- Fiat shows with its symbol: small and gray under the balance, in its own column on the
+  transactions, addresses and UTXOs pages, and beside amounts on the transaction and review
+  pages. Values use today's price, not the price on the day.
+- Send: a SATS | USD tab on the amount row lets you type the amount in your currency, and shows
+  the other beside it.
+- The transactions page shows an "unconfirmed" figure only while money is arriving, in place of
+  the always-present confirmed and pending.
+- The Jade's PIN prompt says to type the BIP39 passphrase on the device when that is switched on.
+- Dependencies: `dirs` 7, `minreq` 3, `egui_bench` 0.5.6, and the rest of the lockfile.
+
 ## [0.1.0] - 2026-10-23
 
 First release. Used with a Jade. Coldcard and Trezor support is written and builds, but has not

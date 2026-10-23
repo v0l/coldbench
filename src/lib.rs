@@ -5,5 +5,6 @@ mod flow;
 pub mod net;
 mod tabs;
 pub mod units;
+pub mod vault;
 mod widgets;
 pub mod work;

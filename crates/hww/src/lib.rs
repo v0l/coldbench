@@ -44,7 +44,9 @@ impl Kind {
     /// What the person does on the device when it asks for a PIN.
     pub fn pin_help(self) -> &'static str {
         match self {
-            Kind::Jade => "Enter the PIN on the Jade, then confirm any prompt it shows.",
+            Kind::Jade => {
+                "Enter the PIN on the Jade. If BIP39 passphrase is on in its Options, it then asks for the passphrase: type it there too, then confirm any prompt it shows."
+            }
             Kind::Coldcard => "Enter the PIN on the Coldcard.",
             Kind::Trezor => "Enter the PIN on the Trezor.",
         }

@@ -1,7 +1,7 @@
 //! Dialogs: adding a wallet, the device prompt, messages, removing a wallet, files.
 
 use crate::app::{App, Browse, Purpose, home};
-use crate::engine::network_name;
+use crate::engine::{Account, network_name};
 use crate::work::{Ask, Op};
 use bdk_wallet::bitcoin::Network;
 use bdk_wallet::bitcoin::bip32::DerivationPath;
@@ -64,9 +64,25 @@ impl App {
                 ui.add_space(4.0);
                 status(ui, false, e);
             }
+            ui.add_space(8.0);
+            section(ui, "encryption", "optional: a password that locks the wallet file on this computer", |ui| {
+                row(ui, "password", |ui| {
+                    secret(ui, &mut n.password);
+                });
+                row(ui, "again", |ui| {
+                    secret(ui, &mut n.confirm);
+                });
+                if !n.password.is_empty() {
+                    note(ui, "Asked for each time the app opens. There is no way to recover a forgotten password; the wallet can be added again from the device.", LEGEND);
+                }
+            });
+            let matches = n.password == n.confirm;
+            if !matches {
+                status(ui, false, "the two passwords are different");
+            }
             let account_ok = n.account.trim().parse::<u32>().is_ok_and(|a| a < 0x8000_0000);
             footer(ui, |ui| {
-                let ready = n.device.is_some() && account_ok;
+                let ready = n.device.is_some() && account_ok && matches;
                 if ui.add(Key::new("read keys").solid(READOUT).min_width(100.0).enabled(ready)).clicked() {
                     go = true;
                 }
@@ -87,6 +103,59 @@ impl App {
             }
         } else if close {
             self.new_wallet = None;
+        }
+    }
+
+    pub fn unlock_modal(&mut self, ctx: &egui::Context) {
+        let Some(u) = &mut self.unlock else { return };
+        let name = u.file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let (mut close, mut go) = (false, false);
+        let r = egui::Modal::new(egui::Id::new("unlock")).backdrop_color(backdrop()).show(ctx, |ui| {
+            ui.set_width(390.0);
+            modal_title(ui, &format!("unlock {name}"));
+            row(ui, "password", |ui| {
+                let resp = secret(ui, &mut u.password);
+                if !resp.has_focus() && u.error.is_none() && u.password.is_empty() {
+                    resp.request_focus();
+                }
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    go = true;
+                }
+            });
+            if let Some(e) = &u.error {
+                ui.add_space(4.0);
+                status(ui, false, e);
+            }
+            footer(ui, |ui| {
+                if ui.add(Key::new("unlock").solid(READOUT).min_width(100.0).enabled(!u.password.is_empty())).clicked() {
+                    go = true;
+                }
+                if ui.add(Key::new("not now").outline(VALUE).min_width(100.0)).clicked() {
+                    close = true;
+                }
+            });
+        });
+        if r.should_close() {
+            close = true;
+        }
+        if go {
+            let file = u.file.clone();
+            match Account::load_with(&file, Some(&u.password)) {
+                Ok(a) => {
+                    self.unlock = None;
+                    self.locked.retain(|p| *p != file);
+                    self.accounts.push(a);
+                    let i = self.accounts.len() - 1;
+                    self.tab = crate::app::Tab::Transactions;
+                    self.select(i);
+                }
+                Err(e) => {
+                    u.error = Some(e);
+                    u.password.clear();
+                }
+            }
+        } else if close {
+            self.unlock = None;
         }
     }
 

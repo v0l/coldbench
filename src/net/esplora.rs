@@ -15,8 +15,12 @@ pub struct Esplora {
 
 impl Esplora {
     pub fn new(url: &str) -> Esplora {
+        Esplora::with_timeout(url, Duration::from_secs(25))
+    }
+
+    pub fn with_timeout(url: &str, timeout: Duration) -> Esplora {
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(25))
+            .timeout(timeout)
             .user_agent("coldbench")
             .build()
             .expect("a client with no custom settings builds");
@@ -140,5 +144,11 @@ impl Esplora {
     pub async fn fees(&self) -> Result<std::collections::HashMap<u16, f64>, NetError> {
         let raw: std::collections::HashMap<String, f64> = self.json("/fee-estimates").await?;
         Ok(raw.into_iter().filter_map(|(k, v)| Some((k.parse().ok()?, v))).collect())
+    }
+
+    /// Bitcoin's price in each fiat currency, from mempool.space's API (`/v1/prices`).
+    pub async fn prices(&self) -> Result<std::collections::BTreeMap<String, f64>, NetError> {
+        let raw: std::collections::BTreeMap<String, f64> = self.json("/v1/prices").await?;
+        Ok(raw.into_iter().filter(|(k, v)| k.len() == 3 && k.chars().all(|c| c.is_ascii_uppercase()) && *v > 0.0).collect())
     }
 }

@@ -88,6 +88,60 @@ fn group(digits: &str, sep: char) -> String {
     out
 }
 
+/// Currencies offered for prices, the ones mempool.space quotes.
+pub const FIATS: [&str; 7] = ["USD", "EUR", "GBP", "CAD", "CHF", "AUD", "JPY"];
+
+/// The symbol people write before an amount in `code`. The dollars that are not US ones keep a
+/// prefix, and the franc has no symbol of its own.
+pub fn symbol(code: &str) -> &str {
+    match code {
+        "USD" => "$",
+        "EUR" => "€",
+        "GBP" => "£",
+        "JPY" => "¥",
+        "CAD" => "CA$",
+        "AUD" => "A$",
+        other => other,
+    }
+}
+
+/// What `sats` are worth at `price` per bitcoin: `$1,234.50`, `-£12.00`, whole units for yen.
+pub fn fiat(sats: i64, price: f64, code: &str) -> String {
+    let value = sats as f64 / SATS_PER_BTC as f64 * price;
+    let places = if code == "JPY" { 0 } else { 2 };
+    let text = format!("{:.places$}", value.abs());
+    let (whole, frac) = text.split_once('.').unwrap_or((&text, ""));
+    let negative = if places == 0 { value.round() < 0.0 } else { value <= -0.005 };
+    let sign = if negative { "-" } else { "" };
+    let frac = if frac.is_empty() { String::new() } else { format!(".{frac}") };
+    let sym = symbol(code);
+    // A code with no symbol of its own reads better with a space: `CHF 1,234.50`.
+    let gap = if sym.chars().all(|c| c.is_ascii_alphabetic()) { " " } else { "" };
+    format!("{sign}{sym}{gap}{}{frac}", group(whole, ','))
+}
+
+/// The satoshis that `typed` of a currency buys at `price` per bitcoin, to the nearest one.
+/// `None` for nothing, nonsense or a negative.
+pub fn sats_for(typed: &str, price: f64) -> Option<u64> {
+    let t: String = typed.chars().filter(|c| !c.is_whitespace() && *c != ',' && *c != '_').collect();
+    if t.contains('-') {
+        return None;
+    }
+    let t = t.trim_start_matches(|c: char| !c.is_ascii_digit() && c != '.');
+    let value: f64 = t.parse().ok()?;
+    if !value.is_finite() || value < 0.0 || price <= 0.0 {
+        return None;
+    }
+    let sats = (value / price * SATS_PER_BTC as f64).round();
+    (sats <= 21_000_000.0 * SATS_PER_BTC as f64).then_some(sats as u64)
+}
+
+/// What `sats` are worth as a plain number to type back in: `2035.10`, no symbol or commas.
+pub fn fiat_plain(sats: u64, price: f64, code: &str) -> String {
+    let places = if code == "JPY" { 0 } else { 2 };
+    format!("{:.places$}", sats as f64 / SATS_PER_BTC as f64 * price)
+}
+
 /// `2026-10-23 10:28` in the local zone.
 pub fn when(unix: u64) -> String {
     match Local.timestamp_opt(unix as i64, 0).single() {
@@ -164,6 +218,33 @@ mod tests {
         }
         assert_eq!(Unit::Btc.plain(150_000_000), "1.5");
         assert_eq!(Unit::Btc.plain(100_000_000), "1");
+    }
+
+    #[test]
+    fn fiat_has_cents_and_groups() {
+        assert_eq!(fiat(100_000_000, 81_404.0, "USD"), "$81,404.00");
+        assert_eq!(fiat(2_500_000, 81_404.0, "USD"), "$2,035.10");
+        assert_eq!(fiat(-50_000_000, 72_715.0, "EUR"), "-€36,357.50");
+        assert_eq!(fiat(10_000_000, 61_070.0, "GBP"), "£6,107.00");
+        assert_eq!(fiat(0, 81_404.0, "USD"), "$0.00");
+        assert_eq!(fiat(1, 81_404.0, "USD"), "$0.00");
+        assert_eq!(fiat(-1, 81_404.0, "USD"), "$0.00");
+        assert_eq!(fiat(100_000_000, 12_848_269.0, "JPY"), "¥12,848,269");
+        assert_eq!(fiat(100_000_000, 113_988.0, "CAD"), "CA$113,988.00");
+        assert_eq!(fiat(100_000_000, 67_202.0, "CHF"), "CHF 67,202.00");
+    }
+
+    #[test]
+    fn fiat_typed_becomes_sats() {
+        assert_eq!(sats_for("81404", 81_404.0), Some(SATS_PER_BTC));
+        assert_eq!(sats_for("$1,000.50", 50_000.0), Some(2_001_000));
+        assert_eq!(sats_for("0", 50_000.0), Some(0));
+        assert_eq!(sats_for("", 50_000.0), None);
+        assert_eq!(sats_for("-5", 50_000.0), None);
+        assert_eq!(sats_for("abc", 50_000.0), None);
+        assert_eq!(sats_for("5", 0.0), None);
+        assert_eq!(fiat_plain(2_500_000, 81_404.0, "USD"), "2035.10");
+        assert_eq!(fiat_plain(100_000_000, 12_848_269.0, "JPY"), "12848269");
     }
 
     #[test]

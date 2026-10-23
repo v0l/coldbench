@@ -93,6 +93,8 @@ pub struct Account {
     wallet: Wallet,
     saved: ChangeSet,
     path: PathBuf,
+    /// Set when the file is encrypted: the key from its password, so saving needs no password.
+    key: Option<crate::vault::Key>,
     /// Bumped whenever what the screens show may have changed, so they can cache.
     pub revision: u64,
 }
@@ -101,6 +103,9 @@ pub struct Account {
 pub struct Balance {
     pub confirmed: u64,
     pub pending: u64,
+    /// Of `pending`, what came from someone else and has not confirmed: money being received.
+    /// The rest is change coming back from a spend of ours.
+    pub incoming: u64,
     pub immature: u64,
 }
 
@@ -192,6 +197,11 @@ impl Account {
     // ---- files ----
 
     pub fn create(meta: Meta, dir: &Path) -> Result<Account, String> {
+        Account::create_with(meta, dir, None)
+    }
+
+    /// A new wallet file, encrypted from its first write when there is a password.
+    pub fn create_with(meta: Meta, dir: &Path, password: Option<&str>) -> Result<Account, String> {
         let xpub = parse_xpub(&meta.xpub, meta.network)?;
         let fp = meta.fingerprint().ok_or("the device fingerprint is not valid")?;
         let (external, internal) = descriptors(meta.script, fp, &meta.account_path(), &xpub);
@@ -207,14 +217,34 @@ impl Account {
             saved: ChangeSet::default(),
             wallet,
             path,
+            key: password.map(crate::vault::Key::new),
             revision: 1,
         };
         a.save()?;
         Ok(a)
     }
 
+    /// Whether the file at `path` needs a password.
+    pub fn is_locked(path: &Path) -> bool {
+        let mut head = [0u8; 8];
+        use std::io::Read;
+        std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && crate::vault::is_encrypted(&head)
+    }
+
     pub fn load(path: &Path) -> Result<Account, String> {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Account::load_with(path, None)
+    }
+
+    /// Open a wallet file, with the password if it is encrypted.
+    pub fn load_with(path: &Path, password: Option<&str>) -> Result<Account, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (text, key) = if crate::vault::is_encrypted(&bytes) {
+            let password = password.ok_or("this wallet is encrypted, it needs its password")?;
+            let (plain, key) = crate::vault::open(password, &bytes).map_err(|e| e.to_string())?;
+            (String::from_utf8(plain).map_err(|e| format!("{}: {e}", path.display()))?, Some(key))
+        } else {
+            (String::from_utf8(bytes).map_err(|e| format!("{}: {e}", path.display()))?, None)
+        };
         let file: File =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let meta = file.meta;
@@ -230,7 +260,7 @@ impl Account {
             .map_err(|e| format!("{}: {e}", path.display()))?
             .ok_or_else(|| format!("{}: holds no wallet", path.display()))?;
         let fresh_salt = !text.contains("\"salt\"");
-        let mut a = Account { meta, wallet, saved: file.changeset, path: path.to_path_buf(), revision: 1 };
+        let mut a = Account { meta, wallet, saved: file.changeset, path: path.to_path_buf(), key, revision: 1 };
         // A file from before the salt existed gets one now, and keeps it: a salt that changed
         // on every start would deal the addresses to new servers each time.
         if fresh_salt {
@@ -243,6 +273,26 @@ impl Account {
         &self.path
     }
 
+    pub fn encrypted(&self) -> bool {
+        self.key.is_some()
+    }
+
+    /// Whether `password` is the wallet's own.
+    pub fn password_is(&self, password: &str) -> bool {
+        self.key.as_ref().is_some_and(|k| k.is(password))
+    }
+
+    /// Encrypt the file with `password` from now on, or with `None` store it plain again.
+    pub fn set_password(&mut self, password: Option<&str>) -> Result<(), String> {
+        let before = self.key.take();
+        self.key = password.map(crate::vault::Key::new);
+        if let Err(e) = self.save() {
+            self.key = before;
+            return Err(e);
+        }
+        Ok(())
+    }
+
     /// Write everything staged, and the labels, to disk. Writes beside the file and renames, so a
     /// crash leaves the old copy.
     pub fn save(&mut self) -> Result<(), String> {
@@ -251,11 +301,15 @@ impl Account {
         }
         let file = File { meta: self.meta.clone(), changeset: self.saved.clone() };
         let text = serde_json::to_string(&file).map_err(|e| e.to_string())?;
+        let bytes = match &self.key {
+            Some(k) => k.seal(text.as_bytes()),
+            None => text.into_bytes(),
+        };
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
+        std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.revision += 1;
         Ok(())
@@ -276,6 +330,7 @@ impl Account {
         Balance {
             confirmed: b.confirmed.to_sat(),
             pending: (b.trusted_pending + b.untrusted_pending).to_sat(),
+            incoming: b.untrusted_pending.to_sat(),
             immature: b.immature.to_sat(),
         }
     }

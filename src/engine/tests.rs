@@ -399,3 +399,31 @@ fn a_sparrow_export_with_its_extra_fields_and_empty_labels() {
     assert_eq!(a.label(&addr), "");
     assert!(!a.utxos()[0].frozen, "no spendable field leaves it as it was");
 }
+
+#[test]
+fn an_encrypted_wallet_needs_its_password_and_stays_encrypted_when_saved() {
+    let dir = tmp("encrypted");
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    let file = a.file().to_path_buf();
+    assert!(!Account::is_locked(&file));
+    a.meta.name = "kept".into();
+    a.set_password(Some("hunter2")).unwrap();
+    assert!(a.encrypted());
+    assert!(Account::is_locked(&file));
+    let raw = std::fs::read(&file).unwrap();
+    assert!(!raw.windows(4).any(|w| w == b"xpub"), "the xpub is not readable in the file");
+    assert!(Account::load(&file).is_err());
+    assert!(Account::load_with(&file, Some("nope")).is_err());
+    let mut b = Account::load_with(&file, Some("hunter2")).unwrap();
+    assert_eq!(b.meta.name, "kept");
+    assert!(b.password_is("hunter2") && !b.password_is("hunter3"));
+    // Saving again keeps it sealed.
+    b.meta.name = "again".into();
+    b.save().unwrap();
+    assert!(Account::is_locked(&file));
+    assert_eq!(Account::load_with(&file, Some("hunter2")).unwrap().meta.name, "again");
+    // And the password can be taken off.
+    b.set_password(None).unwrap();
+    assert!(!Account::is_locked(&file));
+    assert_eq!(Account::load(&file).unwrap().meta.name, "again");
+}

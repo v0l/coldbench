@@ -411,6 +411,7 @@ impl Link {
     ) -> Result<Value> {
         let mut method = method.to_string();
         let mut params = params;
+        let unlocking = method == "auth_user";
         loop {
             let id = self.next_id();
             self.send(&request(&id, &method, params.take()))?;
@@ -422,6 +423,15 @@ impl Link {
             let next = text_of(get(http, "on-reply"))
                 .ok_or_else(|| Error::Protocol("http_request without on-reply".into()))?;
             let body = relay(call)?;
+            if unlocking {
+                // The Jade only reaches the pin server once the PIN has been typed. If a BIP39
+                // passphrase is switched on, its screen comes next and the final reply is held
+                // until it is done. The Jade never says which, so the hint covers both.
+                prompt.notify(Notice::Confirm(
+                    "PIN accepted. If the Jade asks for a passphrase, type it on the Jade (empty for the standard wallet)"
+                        .into(),
+                ));
+            }
             method = next;
             params = Some(from_json(&body));
         }

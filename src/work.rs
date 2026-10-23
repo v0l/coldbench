@@ -2,7 +2,7 @@
 //! channel the UI drains every frame, so the window never blocks and a PIN prompt on a device can
 //! be walked away from.
 
-use crate::net::Fees;
+use crate::net::{Fees, Prices};
 use bdk_wallet::KeychainKind;
 use bdk_wallet::bitcoin::bip32::{DerivationPath, Fingerprint, Xpub};
 use bdk_wallet::bitcoin::{Network, Psbt, Transaction, Txid};
@@ -36,6 +36,7 @@ pub enum Outcome {
     /// Addresses checked so far in a running sync.
     Progress(usize),
     Fees(Fees),
+    Prices(Prices),
     Broadcast(Txid),
     Devices(Vec<Found>),
     Cancelled,
@@ -229,7 +230,7 @@ impl Hub {
                 };
             }
             Outcome::Failed(format!(
-                "the device plugged in holds other keys (fingerprint {}), this wallet was made with {}",
+                "the device plugged in holds other keys (fingerprint {}), this wallet was made with {}. If it uses a passphrase, check you entered the right one (or none)",
                 wrong.join(", "),
                 expect.map(|f| f.to_string()).unwrap_or_default()
             ))
@@ -276,6 +277,16 @@ impl Hub {
             };
             match hub.rt.block_on(pool.fees()) {
                 Ok(f) => Outcome::Fees(f),
+                Err(e) => Outcome::Failed(e),
+            }
+        });
+    }
+
+    pub fn prices(&self, id: u64, servers: Vec<crate::net::servers::Server>) {
+        let hub = self.clone();
+        self.spawn(id, Cancel::default(), move |_| {
+            match hub.rt.block_on(crate::net::prices(&servers)) {
+                Ok(p) => Outcome::Prices(p),
                 Err(e) => Outcome::Failed(e),
             }
         });
