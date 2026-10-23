@@ -36,6 +36,8 @@ fn account(script: Script, network: Network, dir: &Path) -> Account {
         account: 0,
         xpub: xpub.to_string(),
         server: String::new(),
+        salt: "00".into(),
+        parallel: 8,
         created: 1,
         last_sync: None,
         labels: BTreeMap::new(),
@@ -262,4 +264,20 @@ fn a_spend_in_the_same_block_follows_what_it_spends() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[1].txid, parent, "oldest is the receive");
     assert!(rows.iter().all(|r| r.balance >= 0), "{:?}", rows.iter().map(|r| r.balance).collect::<Vec<_>>());
+}
+
+#[test]
+fn an_old_file_gets_a_salt_that_stays() {
+    let dir = tmp("salt");
+    let a = account(Script::Native, Network::Bitcoin, &dir);
+    let file = a.file().to_path_buf();
+    drop(a);
+    // Make it look like a file from before the salt.
+    let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    v["meta"].as_object_mut().unwrap().remove("salt");
+    std::fs::write(&file, v.to_string()).unwrap();
+    let first = Account::load(&file).unwrap().meta.salt;
+    let second = Account::load(&file).unwrap().meta.salt;
+    assert_eq!(first, second);
+    assert_eq!(first.len(), 32);
 }

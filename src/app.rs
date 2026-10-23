@@ -208,8 +208,13 @@ pub struct App {
     pub label_key: String,
     pub name_edit: String,
     pub server_edit: String,
+    pub parallel_edit: u32,
 
     pub notice: Option<(bool, String, Instant)>,
+    /// Addresses checked so far, by running sync.
+    pub progress: HashMap<u64, usize>,
+    /// How the last sync of each wallet was spread.
+    pub reports: HashMap<PathBuf, net::Report>,
     pub load_errors: Vec<String>,
 }
 
@@ -235,7 +240,7 @@ impl Tab {
 
 impl App {
     pub fn new(ctx: &egui::Context, dir: PathBuf) -> App {
-        let (hub, inbox) = work::hub(ctx);
+        let (hub, inbox) = work::hub(ctx, Some(dir.join("pins.json")));
         let config: Config = std::fs::read_to_string(dir.join("config.json"))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
@@ -273,7 +278,10 @@ impl App {
             label_key: String::new(),
             name_edit: String::new(),
             server_edit: String::new(),
+            parallel_edit: 8,
             notice: None,
+            progress: HashMap::new(),
+            reports: HashMap::new(),
             load_errors: Vec::new(),
         };
         app.load_all();
@@ -342,6 +350,7 @@ impl App {
         self.selected_utxos.clear();
         self.shown_receive = None;
         self.server_edit = self.accounts[i].meta.server.clone();
+        self.parallel_edit = self.accounts[i].meta.parallel.clamp(1, 32) as u32;
         self.name_edit = self.accounts[i].meta.name.clone();
         self.label_key.clear();
         self.views = None;
@@ -351,11 +360,13 @@ impl App {
         }
     }
 
+    /// What the footer says about where the wallet syncs from.
     pub fn server(&self, a: &Account) -> String {
-        if a.meta.server.trim().is_empty() {
-            net::default_server(a.network()).to_string()
-        } else {
-            a.meta.server.trim().to_string()
+        let servers = a.meta.servers();
+        match (a.meta.spread(), servers.len()) {
+            (true, n) => format!("{n} public servers, addresses split"),
+            (false, 1) => servers[0].label(),
+            (false, n) => format!("{n} of your servers, addresses split"),
         }
     }
 
@@ -368,11 +379,23 @@ impl App {
         if self.syncing(&file) {
             return;
         }
-        let url = self.server(&self.accounts[i]);
-        let request = self.accounts[i].scan_request();
+        let a = &self.accounts[i];
+        let (known, anchored, floor) = a.known();
+        let job = work::SyncJob {
+            file: file.clone(),
+            servers: a.meta.servers(),
+            network: a.network(),
+            salt: a.meta.salt.as_bytes().to_vec(),
+            parallel: a.meta.parallel.clamp(1, 64),
+            request: a.scan_request(),
+            known,
+            anchored,
+            floor,
+        };
         let id = self.id();
-        self.pending.insert(id, Pending::Sync(file.clone()));
-        self.hub.scan(id, file, url, request);
+        self.pending.insert(id, Pending::Sync(file));
+        self.progress.insert(id, 0);
+        self.hub.scan(id, job);
     }
 
     /// The views of the open wallet, rebuilt when it changed.
@@ -445,6 +468,9 @@ impl App {
     fn poll(&mut self, ctx: &egui::Context) {
         for event in self.inbox.drain() {
             match event {
+                Event::Progress(id, n) => {
+                    self.progress.insert(id, n);
+                }
                 Event::Notice(id, n) => {
                     if let Some(d) = self.device.as_mut().filter(|d| d.id == id) {
                         d.notice = n;
@@ -456,6 +482,7 @@ impl App {
                     }
                 }
                 Event::Done(id, outcome) => {
+                    self.progress.remove(&id);
                     let Some(p) = self.pending.remove(&id) else { continue };
                     self.done(p, id, outcome);
                 }
@@ -483,11 +510,11 @@ impl App {
             let network = a.network();
             let stale = self.fees_at.is_none_or(|(t, n)| n != network || t.elapsed() > FEE_POLL);
             if stale && !self.pending.values().any(|p| matches!(p, Pending::Fees)) {
-                let url = self.server(a);
+                let servers = a.meta.servers();
                 self.fees_at = Some((Instant::now(), network));
                 let id = self.id();
                 self.pending.insert(id, Pending::Fees);
-                self.hub.fees(id, url);
+                self.hub.fees(id, servers, network);
             }
         }
         if self.notice.as_ref().is_some_and(|(_, _, t)| t.elapsed() > NOTICE_FOR) {
@@ -511,7 +538,8 @@ impl App {
                 let Some(job) = self.device.take_if(|d| d.id == id) else { return };
                 self.device_done(job.purpose, outcome);
             }
-            (Pending::Sync(file), Outcome::Scanned(_, update)) => {
+            (Pending::Sync(file), Outcome::Scanned(_, update, report)) => {
+                self.reports.insert(file.clone(), report);
                 if let Some(a) = self.accounts.iter_mut().find(|a| a.file() == file)
                     && let Err(e) = a.apply_scan(*update) {
                         self.say(false, e);
@@ -570,6 +598,8 @@ impl App {
                     account: n.account.trim().parse().unwrap_or(0),
                     xpub: xpub.to_string(),
                     server: String::new(),
+                    salt: crate::engine::new_salt(),
+                    parallel: crate::engine::default_parallel(),
                     created: units::now(),
                     last_sync: None,
                     labels: Default::default(),
@@ -642,12 +672,14 @@ impl App {
         if self.pending.values().any(|p| matches!(p, Pending::Broadcast { .. })) {
             return;
         }
-        let url = self.server(&self.accounts[i]);
-        let file = self.accounts[i].file().to_path_buf();
+        let a = &self.accounts[i];
+        let (servers, network, salt) = (a.meta.servers(), a.network(), a.meta.salt.as_bytes().to_vec());
+        let hint = a.first_input_script(&tx);
+        let file = a.file().to_path_buf();
         let label = self.review.as_ref().map(|r| r.built.label.clone()).unwrap_or_default();
         let id = self.id();
         self.pending.insert(id, Pending::Broadcast { file, label });
-        self.hub.broadcast(id, url, tx);
+        self.hub.broadcast(id, servers, network, salt, tx, hint);
     }
 
     pub fn broadcasting(&self) -> bool {
@@ -828,7 +860,11 @@ impl App {
                 Some((ok, text, _)) => status(ui, *ok, text),
                 None => match self.account() {
                     Some(a) => {
-                        let server = self.server(a);
+                        let syncing = self.pending.iter().find(|(_, p)| matches!(p, Pending::Sync(f) if f == a.file())).map(|(id, _)| *id);
+                        let server = match syncing.and_then(|id| self.progress.get(&id)) {
+                            Some(n) => format!("{}, {n} addresses checked", self.server(a)),
+                            None => self.server(a),
+                        };
                         let tip = a.tip();
                         Line::new().legend("server").value(server).gap(14.0).legend("height").measured(tip.to_string()).show(ui);
                     }

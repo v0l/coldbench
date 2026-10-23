@@ -29,9 +29,17 @@ pub struct Meta {
     pub fingerprint: String,
     pub account: u32,
     pub xpub: String,
-    /// Esplora server for this wallet. Empty means the default for the network.
+    /// The wallet's own servers, one per line (`https://host/api` or `ssl://host:port`). Empty
+    /// spreads the scan over the public servers. An older file's single Esplora url lands here.
     #[serde(default)]
     pub server: String,
+    /// Mixed into how addresses are dealt to servers, so two wallets split differently and an
+    /// operator cannot guess which slice it holds.
+    #[serde(default = "new_salt")]
+    pub salt: String,
+    /// Requests in flight at once across all servers.
+    #[serde(default = "default_parallel")]
+    pub parallel: usize,
     pub created: u64,
     #[serde(default)]
     pub last_sync: Option<u64>,
@@ -40,7 +48,31 @@ pub struct Meta {
     pub labels: BTreeMap<String, String>,
 }
 
+/// Transactions held, those anchored at a height, and the last revealed index per keychain.
+pub type Known = (std::collections::HashSet<Txid>, std::collections::HashSet<(Txid, u32)>, BTreeMap<KeychainKind, u32>);
+
+pub fn new_salt() -> String {
+    use bdk_wallet::bitcoin::secp256k1::rand::{RngCore, thread_rng};
+    let mut b = [0u8; 16];
+    thread_rng().fill_bytes(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+pub fn default_parallel() -> usize {
+    8
+}
+
 impl Meta {
+    /// The servers to sync from: the wallet's own, or every public one for its network.
+    pub fn servers(&self) -> Vec<crate::net::servers::Server> {
+        let own: Vec<_> = self.server.lines().filter_map(crate::net::servers::Server::parse).collect();
+        if own.is_empty() { crate::net::servers::public(self.network) } else { own }
+    }
+
+    pub fn spread(&self) -> bool {
+        self.server.lines().all(|l| l.trim().is_empty())
+    }
+
     pub fn fingerprint(&self) -> Option<Fingerprint> {
         Fingerprint::from_str(&self.fingerprint).ok()
     }
@@ -190,7 +222,14 @@ impl Account {
             .load_wallet_no_persist(file.changeset.clone())
             .map_err(|e| format!("{}: {e}", path.display()))?
             .ok_or_else(|| format!("{}: holds no wallet", path.display()))?;
-        Ok(Account { meta, wallet, saved: file.changeset, path: path.to_path_buf(), revision: 1 })
+        let fresh_salt = !text.contains("\"salt\"");
+        let mut a = Account { meta, wallet, saved: file.changeset, path: path.to_path_buf(), revision: 1 };
+        // A file from before the salt existed gets one now, and keeps it: a salt that changed
+        // on every start would deal the addresses to new servers each time.
+        if fresh_salt {
+            a.save()?;
+        }
+        Ok(a)
     }
 
     pub fn file(&self) -> &Path {
@@ -417,6 +456,34 @@ impl Account {
 
     pub fn scan_request(&self) -> FullScanRequest<KeychainKind> {
         self.wallet.start_full_scan().build()
+    }
+
+    /// What the scanner can skip fetching: transactions it has, and those already anchored.
+    pub fn known(&self) -> Known {
+        use bdk_wallet::chain::ChainPosition;
+        let mut have = std::collections::HashSet::new();
+        let mut anchored = std::collections::HashSet::new();
+        for t in self.wallet.transactions() {
+            have.insert(t.tx_node.txid);
+            if let ChainPosition::Confirmed { anchor, .. } = &t.chain_position {
+                anchored.insert((t.tx_node.txid, anchor.block_id.height));
+            }
+        }
+        let floor = [KeychainKind::External, KeychainKind::Internal]
+            .into_iter()
+            .filter_map(|k| Some((k, self.wallet.spk_index().last_revealed_index(k)?)))
+            .collect();
+        (have, anchored, floor)
+    }
+
+    /// The script of the first input of `tx` that is ours: where a broadcast goes so no new
+    /// server learns of the payment.
+    pub fn first_input_script(&self, tx: &Transaction) -> ScriptBuf {
+        tx.input
+            .iter()
+            .find_map(|i| self.wallet.tx_graph().get_txout(i.previous_output).map(|o| o.script_pubkey.clone()))
+            .or_else(|| tx.output.first().map(|o| o.script_pubkey.clone()))
+            .unwrap_or_default()
     }
 
     pub fn apply_scan(&mut self, update: FullScanResponse<KeychainKind>) -> Result<(), String> {

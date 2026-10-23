@@ -22,6 +22,7 @@ pub enum Ask {
 
 pub enum Event {
     Notice(u64, Notice),
+    Progress(u64, usize),
     Ask(u64, Ask),
     Done(u64, Outcome),
 }
@@ -31,7 +32,9 @@ pub enum Outcome {
     Address(String),
     Signed(Psbt),
     Message { address: String, signature: String },
-    Scanned(PathBuf, Box<FullScanResponse<KeychainKind>>),
+    Scanned(PathBuf, Box<FullScanResponse<KeychainKind>>, crate::net::Report),
+    /// Addresses checked so far in a running sync.
+    Progress(usize),
     Fees(Fees),
     Broadcast(Txid),
     Devices(Vec<Found>),
@@ -52,6 +55,22 @@ pub enum Op {
 pub struct Hub {
     tx: Sender<Event>,
     ctx: egui::Context,
+    rt: Arc<tokio::runtime::Runtime>,
+    pins: crate::net::Pins,
+    pin_file: Option<PathBuf>,
+}
+
+/// What a sync needs, gathered on the UI thread.
+pub struct SyncJob {
+    pub file: PathBuf,
+    pub servers: Vec<crate::net::servers::Server>,
+    pub network: Network,
+    pub salt: Vec<u8>,
+    pub parallel: usize,
+    pub request: FullScanRequest<KeychainKind>,
+    pub known: std::collections::HashSet<Txid>,
+    pub anchored: std::collections::HashSet<(Txid, u32)>,
+    pub floor: std::collections::BTreeMap<KeychainKind, u32>,
 }
 
 pub struct Inbox {
@@ -64,9 +83,22 @@ impl Inbox {
     }
 }
 
-pub fn hub(ctx: &egui::Context) -> (Hub, Inbox) {
+/// `pin_file` keeps the Electrum certificate pins between runs.
+pub fn hub(ctx: &egui::Context, pin_file: Option<PathBuf>) -> (Hub, Inbox) {
     let (tx, rx) = channel();
-    (Hub { tx, ctx: ctx.clone() }, Inbox { rx })
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .thread_name("net")
+        .build()
+        .expect("a tokio runtime starts");
+    let pins: std::collections::HashMap<String, String> = pin_file
+        .as_ref()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let hub = Hub { tx, ctx: ctx.clone(), rt: Arc::new(rt), pins: Arc::new(std::sync::Mutex::new(pins)), pin_file };
+    (hub, Inbox { rx })
 }
 
 /// Set from the UI to give up on a running job.
@@ -204,24 +236,65 @@ impl Hub {
         });
     }
 
-    pub fn scan(&self, id: u64, file: PathBuf, url: String, request: FullScanRequest<KeychainKind>) {
-        self.spawn(id, Cancel::default(), move |_| match crate::net::scan(&url, request, crate::engine::GAP) {
-            Ok(r) => Outcome::Scanned(file, Box::new(r)),
-            Err(e) => Outcome::Failed(e),
+    fn save_pins(&self) {
+        let Some(f) = &self.pin_file else { return };
+        let pins = self.pins.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Ok(t) = serde_json::to_string_pretty(&pins) {
+            let _ = std::fs::write(f, t);
+        }
+    }
+
+    fn pool(&self, servers: Vec<crate::net::servers::Server>, network: Network, salt: &[u8], parallel: usize) -> Result<crate::net::Pool, String> {
+        let r = self.rt.block_on(crate::net::Pool::connect(servers, network, salt, parallel, self.pins.clone()));
+        self.save_pins();
+        r
+    }
+
+    pub fn scan(&self, id: u64, job: SyncJob) {
+        let hub = self.clone();
+        self.spawn(id, Cancel::default(), move |link| {
+            let pool = match hub.pool(job.servers, job.network, &job.salt, job.parallel) {
+                Ok(p) => p,
+                Err(e) => return Outcome::Failed(e),
+            };
+            let progress = |n| link.send(Event::Progress(id, n));
+            let r = hub.rt.block_on(pool.scan(job.request, crate::engine::GAP, job.known, job.anchored, job.floor, progress));
+            let report = pool.report.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            match r {
+                Ok(r) => Outcome::Scanned(job.file, Box::new(r), report),
+                Err(e) => Outcome::Failed(e),
+            }
         });
     }
 
-    pub fn fees(&self, id: u64, url: String) {
-        self.spawn(id, Cancel::default(), move |_| match crate::net::fees(&url) {
-            Ok(f) => Outcome::Fees(f),
-            Err(e) => Outcome::Failed(e),
+    pub fn fees(&self, id: u64, servers: Vec<crate::net::servers::Server>, network: Network) {
+        let hub = self.clone();
+        self.spawn(id, Cancel::default(), move |_| {
+            let pool = match hub.pool(servers, network, b"fees", 4) {
+                Ok(p) => p,
+                Err(e) => return Outcome::Failed(e),
+            };
+            match hub.rt.block_on(pool.fees()) {
+                Ok(f) => Outcome::Fees(f),
+                Err(e) => Outcome::Failed(e),
+            }
         });
     }
 
-    pub fn broadcast(&self, id: u64, url: String, tx: Transaction) {
-        self.spawn(id, Cancel::default(), move |_| match crate::net::broadcast(&url, &tx) {
-            Ok(()) => Outcome::Broadcast(tx.compute_txid()),
-            Err(e) => Outcome::Failed(e),
+    /// `hint` is the script of an input, so the transaction goes to the operator that already
+    /// knows that address.
+    #[allow(clippy::too_many_arguments)]
+    pub fn broadcast(&self, id: u64, servers: Vec<crate::net::servers::Server>, network: Network, salt: Vec<u8>, tx: Transaction, hint: bdk_wallet::bitcoin::ScriptBuf) {
+        let hub = self.clone();
+        self.spawn(id, Cancel::default(), move |_| {
+            let pool = match hub.pool(servers, network, &salt, 4) {
+                Ok(p) => p,
+                Err(e) => return Outcome::Failed(e),
+            };
+            match hub.rt.block_on(pool.broadcast(&tx, &hint)) {
+                Ok(txid) => Outcome::Broadcast(txid),
+                Err(e) => Outcome::Failed(e),
+            }
         });
     }
 }

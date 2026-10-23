@@ -30,8 +30,11 @@ wallet --dir DIR       # keep wallets in DIR instead of the data folder
 ```
 
 1. Plug in and unlock the device, press **add wallet**, pick the script type and read the keys.
-2. The wallet scans its history from the server (mempool.space unless you set your own in
-   settings, which you should for privacy).
+2. The wallet scans its history. By default each address is asked of one public server
+   operator only (Esplora and Electrum, about ten operators on mainnet), picked by a secret salt
+   the wallet keeps, so no single server sees the whole wallet. Up to 8 requests run at once,
+   4 per server. Confirmations are checked with merkle proofs against headers with real proof of
+   work. Every server still sees your IP; list your own servers in settings to use those instead.
 3. **send**: fill in the payment, create it, check it, press **sign on device** and approve on the
    device, then **broadcast**. A Coldcard used air-gapped works through **save psbt** and dropping
    the signed file back on the window.

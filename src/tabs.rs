@@ -583,7 +583,6 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.set_max_width(820.0);
             let a = &self.accounts[i];
-            let default = crate::net::default_server(a.network()).to_string();
             let meta = a.meta.clone();
             let external = a.descriptor(KeychainKind::External);
             let internal = a.descriptor(KeychainKind::Internal);
@@ -623,20 +622,64 @@ impl App {
                 });
             });
             let mut save_server = false;
-            section(ui, "server", "an Esplora server, yours or a public one", |ui| {
-                row_help(ui, "url", "The server sees which addresses are yours. Run your own (electrs, mempool) for privacy.", |ui| {
-                    let r = field_then(ui, &mut self.server_edit, &default, 60.0, |ui| {
-                        save_server = ui.add(Key::new("save").outline(READOUT)).clicked();
-                    });
-                    save_server |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let report = self.reports.get(self.accounts[i].file()).cloned();
+            let spread = self.server_edit.lines().all(|l| l.trim().is_empty());
+            let typed: Vec<_> = self.server_edit.lines().filter(|l| !l.trim().is_empty()).map(|l| (l.trim().to_string(), crate::net::servers::Server::parse(l))).collect();
+            section(ui, "servers", "where the history comes from", |ui| {
+                row_help(
+                    ui,
+                    "your servers",
+                    "One per line, https://host/api for Esplora or ssl://host:port for Electrum. Leave it empty to split the addresses over every public server.",
+                    |ui| {
+                        prose(ui, &mut self.server_edit, "empty: the public servers", 3);
+                    },
+                );
+                for (line, parsed) in &typed {
+                    if parsed.is_none() {
+                        status(ui, false, &format!("not a server: {line}"));
+                    }
+                }
+                row_help(ui, "parallel", "Requests in flight at once across all servers. Each server gets at most 4.", |ui| {
+                    ui.add(egui::Slider::new(&mut self.parallel_edit, 1..=32));
                 });
-                let shown = if self.server_edit.trim().is_empty() { default.clone() } else { self.server_edit.trim().to_string() };
-                reading(ui, "using", shown);
+                if spread {
+                    note(
+                        ui,
+                        "Each address is asked of one operator only, picked by a secret only this wallet knows, \
+                         so no single server sees the whole wallet. Every server still sees your IP address, \
+                         and spending links its inputs on chain for everyone.",
+                        LEGEND,
+                    );
+                } else {
+                    note(ui, "Your servers see every address of this wallet unless you list several run by different people.", WARN);
+                }
+                ui.horizontal(|ui| {
+                    let ok = typed.iter().all(|(_, p)| p.is_some());
+                    save_server = ui.add(Key::new("save and sync").solid(READOUT).enabled(ok)).clicked();
+                });
             });
-            if save_server && self.accounts[i].meta.server != self.server_edit.trim() {
+            if let Some(r) = report {
+                section(ui, "last sync", &format!("{} addresses over {} servers", r.addresses, r.servers), |ui| {
+                    let most = r.spread.values().copied().max().unwrap_or(0);
+                    for (op, n) in &r.spread {
+                        let share = if r.addresses == 0 { 0.0 } else { *n as f32 / r.addresses as f32 };
+                        Line::new().legend(op).column(ui, 150.0).measured(format!("{n} addresses")).column(ui, 300.0).note(format!("{:.0}%", share * 100.0)).show(ui);
+                        let _ = most;
+                    }
+                    reading(ui, "proofs checked", format!("{} confirmations, each against a header with its work", r.verified));
+                    for s in &r.skipped {
+                        note(ui, format!("skipped {s}"), WARN);
+                    }
+                });
+            }
+            let parallel = self.parallel_edit as usize;
+            if save_server {
                 let a = &mut self.accounts[i];
-                a.meta.server = self.server_edit.trim().to_string();
+                let text: String = typed.iter().map(|(l, _)| format!("{l}\n")).collect();
+                a.meta.server = text.trim_end().to_string();
+                a.meta.parallel = parallel;
                 let _ = a.save();
+                self.server_edit = self.accounts[i].meta.server.clone();
                 self.fees = None;
                 self.fees_reset();
                 self.sync(i);

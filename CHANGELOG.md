@@ -11,6 +11,7 @@ First release.
 - Coin control, freezing, labels, send all, fee picks from the server's estimates, and fee bumps.
 - Sign on the device, or save, copy, load, drop or paste a PSBT for an SD card or another signer.
 - Show an address on the device to check it, and sign or verify messages (BIP137).
-- Syncs from an Esplora server, mempool.space by default or your own.
+- Syncs over every public Esplora and Electrum server at once, each address asked of one
+  operator only, in parallel, with merkle proofs checked against headers. Or your own servers.
 
 [0.1.0]: https://github.com/v0l/wallet/releases/tag/v0.1.0

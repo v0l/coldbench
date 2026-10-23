@@ -24,6 +24,8 @@ fn main() {
         account: 0,
         xpub: xpub.to_string(),
         server: String::new(),
+        salt: "00".into(),
+        parallel: 8,
         created: 1,
         last_sync: None,
         labels: Default::default(),
