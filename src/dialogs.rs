@@ -312,6 +312,14 @@ impl App {
                 Ok(b) => self.load_psbt(&b),
                 Err(e) => self.say(false, format!("{}: {e}", p.display())),
             },
+            (Picked::File(p), Browse::ImportLabels) => match std::fs::read(&p) {
+                Ok(b) => self.import_labels(&b),
+                Err(e) => self.say(false, format!("{}: {e}", p.display())),
+            },
+            (Picked::Folder(dir), Browse::ExportLabels) | (Picked::File(dir), Browse::ExportLabels) => {
+                let dir = if dir.is_dir() { dir } else { dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(home) };
+                self.export_labels(&dir);
+            }
             (Picked::Folder(dir), Browse::SavePsbt) | (Picked::File(dir), Browse::SavePsbt) => {
                 let dir = if dir.is_dir() { dir } else { dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(home) };
                 if let Some(r) = &self.review {

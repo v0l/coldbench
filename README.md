@@ -39,6 +39,14 @@ coldbench --dir DIR       # keep wallets in DIR instead of the data folder
    device, then **broadcast**. A Coldcard used air-gapped works through **save psbt** and dropping
    the signed file back on the window.
 
+### Coming from Sparrow
+
+In Sparrow, open the wallet and pick **File → Export Wallet → Labels**. In coldbench, add the
+same device and account, sync, then use **import labels** in settings (or the menu), or drop the
+`.jsonl` file on the window. Transaction, address and coin labels come over, and so do frozen
+coins. **export labels** writes the same BIP329 format back, for Sparrow or any wallet that reads
+it. Labels for another account in the file are left out, and the window says how many.
+
 Wallets are JSON files in the data folder (`~/.local/share/coldbench/wallets` on Linux), one per
 account, with labels inside.
 

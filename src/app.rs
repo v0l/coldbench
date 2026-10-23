@@ -225,6 +225,8 @@ pub struct App {
 pub enum Browse {
     LoadPsbt,
     SavePsbt,
+    ImportLabels,
+    ExportLabels,
 }
 
 impl Tab {
@@ -728,6 +730,33 @@ impl App {
         self.fees_at = None;
     }
 
+    /// Labels from Sparrow (File, Export Wallet, Labels) or any BIP329 file, into the open wallet.
+    pub fn import_labels(&mut self, bytes: &[u8]) {
+        let Some(i) = self.current else {
+            return self.say(false, "open a wallet before importing labels");
+        };
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return self.say(false, "that file is not text, a label file is JSON lines");
+        };
+        let got = self.accounts[i].import_labels(text);
+        if let Err(e) = self.accounts[i].save() {
+            return self.say(false, e);
+        }
+        let ok = got.labels + got.frozen + got.unfrozen > 0;
+        self.say(ok, got.summary());
+    }
+
+    pub fn export_labels(&mut self, dir: &Path) {
+        let Some(i) = self.current else { return };
+        let a = &self.accounts[i];
+        let name: String = a.meta.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' }).collect();
+        let path = dir.join(format!("{}-labels.jsonl", name.trim_matches('-')));
+        match std::fs::write(&path, a.export_labels()) {
+            Ok(()) => self.say(true, format!("saved {} labels to {}", a.meta.labels.len(), path.display())),
+            Err(e) => self.say(false, format!("{}: {e}", path.display())),
+        }
+    }
+
     fn dropped(&mut self, ctx: &egui::Context) {
         let files = ctx.input(|i| i.raw.dropped_files.clone());
         for f in files {
@@ -736,8 +765,13 @@ impl App {
                 (None, Some(p)) => std::fs::read(p).ok(),
                 _ => None,
             };
-            if let Some(b) = bytes {
-                self.load_psbt(&b);
+            let labels = f.path.as_ref().is_some_and(|p| {
+                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("jsonl") || x.eq_ignore_ascii_case("json"))
+            });
+            match bytes {
+                Some(b) if labels => self.import_labels(&b),
+                Some(b) => self.load_psbt(&b),
+                None => {}
             }
         }
     }
@@ -778,6 +812,18 @@ impl App {
                         self.browser = Some((
                             egui_bench::browser::Browser::new("load a transaction", home()).suffixes(&[".psbt", ".txt"]),
                             Browse::LoadPsbt,
+                        ));
+                    }
+                    if ui.add(Key::new("import labels").outline(VALUE).min_width(w).enabled(open)).on_hover_text("a BIP329 file, as Sparrow exports").clicked() {
+                        self.browser = Some((
+                            egui_bench::browser::Browser::new("import labels", home()).suffixes(&[".jsonl", ".json"]),
+                            Browse::ImportLabels,
+                        ));
+                    }
+                    if ui.add(Key::new("export labels").outline(VALUE).min_width(w).enabled(open)).clicked() {
+                        self.browser = Some((
+                            egui_bench::browser::Browser::new("save the labels in", home()).folders(true),
+                            Browse::ExportLabels,
                         ));
                     }
                     if ui.add(Key::new("paste a psbt").outline(VALUE).min_width(w).enabled(open)).clicked() {

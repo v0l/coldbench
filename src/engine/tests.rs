@@ -325,3 +325,77 @@ fn a_stonewall_that_cannot_be_made_falls_back_and_says_why() {
     assert!(!built.stonewall);
     assert!(built.note.as_deref().unwrap_or("").contains("not a Stonewall"), "{:?}", built.note);
 }
+
+#[test]
+fn sparrow_labels_come_in_and_go_back_out() {
+    let dir = tmp("labels");
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    assert_eq!(a.origin(), "wpkh([73c5da0a/84'/0'/0'])");
+    let addr = a.receive().address;
+    let txid = fund(&mut a, &addr, 50_000, 100);
+    let coin = format!("{txid}:0");
+    let upper = addr.to_uppercase();
+    let file = format!(
+        r#"{{"type":"tx","ref":"{txid}","label":"salary","origin":"wpkh([73C5DA0A/84h/0h/0h])"}}
+{{"type":"addr","ref":"{upper}","label":"from Alice"}}
+{{"type":"output","ref":"{coin}","label":"keep","spendable":false}}
+{{"type":"tx","ref":"{txid}","label":"other account","origin":"wpkh([73c5da0a/84'/0'/1'])"}}
+{{"type":"tx","ref":"f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd","label":"not ours"}}
+{{"type":"xpub","ref":"xpub661MyMwAqRbc","label":"key"}}
+garbage
+"#
+    );
+    let got = a.import_labels(&file);
+    assert_eq!(got.labels, 3, "{got:?}");
+    assert_eq!((got.frozen, got.other_wallet, got.unknown, got.skipped), (1, 1, 1, 1), "{got:?}");
+    assert_eq!(got.bad, vec![7]);
+    assert_eq!(a.label(&txid.to_string()), "salary");
+    assert_eq!(a.label(&addr), "from Alice", "upper case bech32 lands on the address");
+    assert_eq!(a.label(&coin), "keep");
+    assert!(a.utxos()[0].frozen);
+
+    // Out again, and into a fresh copy of the same wallet: the same labels and the same freeze.
+    let out = a.export_labels();
+    let (records, bad) = labels::parse(&out);
+    assert!(bad.is_empty());
+    assert_eq!(records.len(), 3);
+    assert!(records.iter().any(|r| r.kind == "output" && r.spendable == Some(false)));
+    assert!(records.iter().filter(|r| r.kind == "tx").all(|r| r.origin.as_deref() == Some("wpkh([73c5da0a/84'/0'/0'])")));
+
+    let dir2 = tmp("labels-2");
+    let mut b = account(Script::Native, Network::Bitcoin, &dir2);
+    let addr2 = b.receive().address;
+    assert_eq!(addr2, addr);
+    fund(&mut b, &addr2, 50_000, 100);
+    let again = b.import_labels(&out);
+    assert_eq!((again.labels, again.frozen, again.unknown), (3, 1, 0), "{again:?}");
+    assert_eq!(b.label(&txid.to_string()), "salary");
+
+    // A second import changes nothing and says so.
+    let twice = b.import_labels(&out);
+    assert_eq!((twice.replaced, twice.frozen), (0, 0));
+}
+
+#[test]
+fn a_sparrow_export_with_its_extra_fields_and_empty_labels() {
+    let dir = tmp("labels-sparrow");
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    let addr = a.receive().address;
+    let txid = fund(&mut a, &addr, 50_000, 100);
+    let origin = "wpkh([73c5da0a/84'/0'/0']xpub6CatWdiZiodmUeTDp8LT5or8nmbKNcuyvz7WyksVFkKB4RHwCD3XyuvPEbvqAQY3rAPshWcMLoP2fMFMKHPJ4ZeZXYVUhLv1VMrjPC7PW6V/<0;1>/*)#abcdefgh";
+    // As Sparrow writes them: origin on everything, extra fields, records with no label.
+    let file = format!(
+        r#"{{"type":"tx","ref":"{txid}","label":"from the exchange","origin":"{origin}","height":800000,"time":"2023-07-24T01:23:45Z","fee":1410,"value":50000,"rate":{{"USD":29000.5}}}}
+{{"type":"addr","ref":"{addr}","origin":"{origin}","keypath":"/0/0","heights":[800000]}}
+{{"type":"output","ref":"{txid}:0","label":null,"origin":"{origin}","keypath":"/0/0","value":50000,"height":800000,"time":"2023-07-24T01:23:45Z","fmv":{{"USD":14.5}}}}
+{{"type":"input","ref":"{txid}:0","label":"spent here","origin":"{origin}"}}
+"#
+    );
+    let got = a.import_labels(&file);
+    assert_eq!(got.labels, 1, "only the one record that has a label: {got:?}");
+    assert_eq!(got.bad, Vec::<usize>::new());
+    assert_eq!(got.other_wallet, 0, "a full descriptor origin is still ours");
+    assert_eq!(a.label(&txid.to_string()), "from the exchange");
+    assert_eq!(a.label(&addr), "");
+    assert!(!a.utxos()[0].frozen, "no spendable field leaves it as it was");
+}

@@ -759,6 +759,25 @@ impl App {
                 self.fees_reset();
                 self.sync(i);
             }
+            section(ui, "labels", "notes on transactions, addresses and coins", |ui| {
+                let n = self.accounts[i].meta.labels.len();
+                Line::new().legend("labels").measured(n.to_string()).show(ui);
+                note(ui, "Bring them over from Sparrow (File, Export Wallet, Labels) or any wallet that writes BIP329. Frozen coins come too. You can also drop the .jsonl file on the window.", LEGEND);
+                ui.horizontal(|ui| {
+                    if ui.add(Key::new("import labels").outline(READOUT)).clicked() {
+                        self.browser = Some((
+                            egui_bench::browser::Browser::new("import labels", crate::app::home()).suffixes(&[".jsonl", ".json"]),
+                            crate::app::Browse::ImportLabels,
+                        ));
+                    }
+                    if ui.add(Key::new("export labels").outline(VALUE).enabled(n > 0)).clicked() {
+                        self.browser = Some((
+                            egui_bench::browser::Browser::new("save the labels in", crate::app::home()).folders(true),
+                            crate::app::Browse::ExportLabels,
+                        ));
+                    }
+                });
+            });
             section(ui, "remove", "forget this wallet on this computer", |ui| {
                 note(ui, "Only the watch-only copy and its labels are deleted. The coins stay on the device's keys.", LEGEND);
                 if ui.add(Key::new("remove wallet").outline(FAULT)).clicked() {
