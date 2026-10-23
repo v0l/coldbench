@@ -54,15 +54,12 @@ pub fn rows(
     clicked
 }
 
-/// A QR code of `text`, `side` pixels square, drawn by `egui-qr` on its white ground.
+/// A QR code of `text`, `side` points square, drawn by `egui-qr` on its white ground.
 pub fn qr(ui: &mut Ui, text: &str, side: f32) {
     use egui::Widget;
-    let Ok(code) = egui_qr::QrCodeWidget::from_data(text.as_bytes()) else { return };
-    // The widget fills the space it is offered, so offer a square.
-    ui.allocate_ui(Vec2::splat(side), |ui| {
-        ui.set_min_size(Vec2::splat(side));
-        code.quiet_zone(3.0).ui(ui);
-    });
+    if let Ok(code) = egui_qr::QrCodeWidget::from_data(text.as_bytes()) {
+        code.size(side).quiet_zone(3.0).ui(ui);
+    }
 }
 
 /// What goes in a QR so phones open it in a wallet: `bitcoin:` and the address, bech32 upper
