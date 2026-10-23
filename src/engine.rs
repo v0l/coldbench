@@ -155,6 +155,8 @@ pub struct SendPlan {
     /// Spend exactly these and nothing else. `None` lets the wallet choose.
     pub only: Option<Vec<OutPoint>>,
     pub label: String,
+    /// Build it as a Stonewall when the coins allow, a normal spend when not.
+    pub stonewall: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -162,6 +164,8 @@ pub struct Output {
     pub address: String,
     pub value: u64,
     pub change: bool,
+    /// Ours and the same amount as the payment: the Stonewall's other half.
+    pub decoy: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +183,9 @@ pub struct Built {
     pub fee: u64,
     pub sat_per_vb: f64,
     pub label: String,
+    pub stonewall: bool,
+    /// Why a Stonewall that was asked for could not be made.
+    pub note: Option<String>,
 }
 
 impl Account {
@@ -511,6 +518,20 @@ impl Account {
     }
 
     pub fn build(&mut self, plan: &SendPlan) -> Result<Built, String> {
+        if !plan.stonewall {
+            return self.build_plain(plan);
+        }
+        match self.stonewall(plan) {
+            Ok(b) => Ok(b),
+            Err(why) => {
+                let mut b = self.build_plain(plan)?;
+                b.note = Some(format!("a normal spend, not a Stonewall: {why}"));
+                Ok(b)
+            }
+        }
+    }
+
+    fn build_plain(&mut self, plan: &SendPlan) -> Result<Built, String> {
         if plan.recipients.is_empty() {
             return Err("add somewhere to send to".into());
         }
@@ -603,11 +624,12 @@ impl Account {
                     .wallet
                     .derivation_of_spk(o.script_pubkey.clone())
                     .is_some_and(|(k, _)| k == KeychainKind::Internal),
+                decoy: false,
             })
             .collect();
         let out_total: u64 = outputs.iter().map(|o| o.value).sum();
         let fee = in_total.checked_sub(out_total).ok_or("the outputs add up to more than the inputs")?;
-        Ok(Built { psbt, inputs, outputs, fee, sat_per_vb, label })
+        Ok(Built { psbt, inputs, outputs, fee, sat_per_vb, label, stonewall: false, note: None })
     }
 
     /// Put the signatures a device gave back into our copy.
@@ -753,6 +775,8 @@ pub fn verify_message(address: &str, message: &str, signature: &str, network: Ne
     // Some signers use the p2pkh header for every address type, so accept any form of the same key.
     Ok(candidates.contains(&spk))
 }
+
+mod stonewall;
 
 #[cfg(test)]
 mod tests;

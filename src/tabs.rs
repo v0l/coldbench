@@ -202,7 +202,21 @@ impl App {
             rbf: self.send.rbf,
             only: self.send.only.clone(),
             label: self.send.label.clone(),
+            stonewall: self.send.stonewall,
         })
+    }
+
+    pub fn demo_stonewall(&mut self) {
+        self.send.recipients = vec![Recipient { address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq".into(), amount: "0.004".into(), max: false }];
+        self.send.fee = FeePick::Custom;
+        self.send.custom = "2".into();
+        self.send.stonewall = true;
+        self.send.label = "demo".into();
+        self.tab = Tab::Send;
+        match self.plan().and_then(|p| self.account_mut().ok_or("no wallet".to_string())?.build(&p)) {
+            Ok(built) => self.review = Some(Review { psbt: built.psbt.clone(), built, tx: None, error: None, replaces: None }),
+            Err(e) => self.say(false, e),
+        }
     }
 
     pub fn send_tab(&mut self, ui: &mut Ui) {
@@ -257,7 +271,7 @@ impl App {
                     (FeePick::Custom, "custom".to_string()),
                 ];
                 let options: Vec<(FeePick, &str, Option<usize>)> = labels.iter().map(|(p, l)| (*p, l.as_str(), None)).collect();
-                segments(ui, &mut self.send.fee, &options);
+                ui.push_id("fee pick", |ui| segments(ui, &mut self.send.fee, &options));
                 ui.add_space(4.0);
                 if self.send.fee == FeePick::Custom {
                     row(ui, "rate (sat/vB)", |ui| {
@@ -267,6 +281,22 @@ impl App {
                     Line::new().legend("rate").set(rate(self.fee_rate()) + " sat/vB").show(ui);
                 }
                 switch(ui, "replaceable", &mut self.send.rbf, "allow a fee bump later", "Marks the payment as replaceable (BIP125) so it can be sped up while unconfirmed.");
+            });
+            section(ui, "optimise for", "what the transaction gives away", |ui| {
+                ui.push_id("optimise", |ui| segments(ui, &mut self.send.stonewall, &[(false, "efficiency", None), (true, "privacy", None)]));
+                ui.add_space(4.0);
+                if self.send.stonewall {
+                    note(
+                        ui,
+                        "A Stonewall: two groups of your coins each pay the amount, one to the recipient and one \
+                         back to you, each with its own change. It reads as two people in a coinjoin, so nobody can \
+                         tell which output is the payment or assume every input is yours. About twice the fee.",
+                        LEGEND,
+                    );
+                    hint(ui, "Needs one recipient, a set amount, and coins on separate addresses that cover it twice.");
+                } else {
+                    note(ui, "The fewest coins and the lowest fee. The inputs and the change are plainly yours.", LEGEND);
+                }
             });
             section(ui, "label", "kept with the transaction", |ui| {
                 field(ui, &mut self.send.label, "what this payment is for");
@@ -326,6 +356,12 @@ impl App {
             ui.set_max_width(860.0);
             stage_rail(ui, &["create", "sign", "broadcast"], Some(stage), READOUT, 22.0, false);
             ui.add_space(4.0);
+            if built.stonewall {
+                status(ui, true, "Stonewall: one of the two equal outputs comes back to you, nobody else can tell which");
+            }
+            if let Some(n) = &built.note {
+                note(ui, n.clone(), WARN);
+            }
             if let Some(old) = replaces {
                 note(ui, format!("replaces {} with a higher fee", units::short(&old.to_string(), 10)), WARN);
             }
@@ -344,7 +380,7 @@ impl App {
                     );
                 });
                 for o in &built.outputs {
-                    let tag = if o.change { "change" } else { "to" };
+                    let tag = if o.decoy { "decoy" } else if o.change { "change" } else { "to" };
                     Line::new().legend(tag).column(ui, 70.0).value(unit.with_unit(o.value as i64)).column(ui, 220.0).value(o.address.clone()).show(ui);
                 }
             });

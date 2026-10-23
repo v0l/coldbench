@@ -52,6 +52,11 @@ fn main() -> eframe::Result<()> {
                     Err(e) => app.say(false, format!("{f}: {e}")),
                 }
             }
+            // Fills the send page with a privacy payment and builds it, for looking at the review
+            // page without fee estimates or a device.
+            if args.iter().any(|a| a == "--stonewall-demo") {
+                app.demo_stonewall();
+            }
             if args.iter().any(|a| a == "--prompt") {
                 app.preview_prompt();
             }

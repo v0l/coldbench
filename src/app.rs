@@ -62,6 +62,8 @@ pub struct SendForm {
     pub fee: FeePick,
     pub custom: String,
     pub rbf: bool,
+    /// Sparrow's "privacy" choice: a Stonewall when the coins allow.
+    pub stonewall: bool,
     /// Coin control: spend only these.
     pub only: Option<Vec<OutPoint>>,
 }
@@ -74,6 +76,7 @@ impl Default for SendForm {
             fee: FeePick::Medium,
             custom: String::new(),
             rbf: true,
+            stonewall: false,
             only: None,
         }
     }

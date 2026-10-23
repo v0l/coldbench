@@ -281,3 +281,47 @@ fn an_old_file_gets_a_salt_that_stays() {
     assert_eq!(first, second);
     assert_eq!(first.len(), 32);
 }
+
+fn stonewall_wallet(name: &str) -> Account {
+    let dir = tmp(name);
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    for (i, v) in [60_000u64, 55_000, 8_000, 40_000].into_iter().enumerate() {
+        let addr = a.another().address;
+        fund(&mut a, &addr, v, 100 + i as u64);
+    }
+    a
+}
+
+#[test]
+fn a_stonewall_looks_like_two_people_paying_the_same() {
+    let mut a = stonewall_wallet("stonewall");
+    let to = a.parse_address("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").unwrap();
+    let plan = SendPlan { recipients: vec![(to.clone(), 30_000)], sat_per_vb: 3.0, rbf: true, stonewall: true, ..Default::default() };
+    let built = a.build(&plan).unwrap();
+    assert!(built.stonewall, "{:?}", built.note);
+    assert_eq!(built.outputs.len(), 4);
+    assert_eq!(built.outputs.iter().filter(|o| o.value == 30_000).count(), 2, "payment and decoy match");
+    assert_eq!(built.outputs.iter().filter(|o| o.decoy).count(), 1);
+    assert!(built.outputs.iter().filter(|o| !o.change).all(|o| o.address == to.to_string()));
+    let ins: u64 = built.inputs.iter().map(|i| i.value).sum();
+    let outs: u64 = built.outputs.iter().map(|o| o.value).sum();
+    assert_eq!(ins, outs + built.fee);
+    let vb = built.psbt.unsigned_tx.vsize() as f64 + 27.0 * built.inputs.len() as f64;
+    assert!((built.fee as f64 - 3.0 * vb).abs() < 40.0, "fee {} for {vb} vB", built.fee);
+
+    let mut p = built.psbt.clone();
+    p.sign(&master(Network::Bitcoin), &Secp256k1::new()).unwrap();
+    let tx = a.finalize(&p).unwrap();
+    assert_eq!(tx.output.len(), 4);
+}
+
+#[test]
+fn a_stonewall_that_cannot_be_made_falls_back_and_says_why() {
+    let mut a = stonewall_wallet("stonewall-fallback");
+    let to = a.parse_address("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").unwrap();
+    // 100k: no two separate halves of the 163k held reach it.
+    let plan = SendPlan { recipients: vec![(to, 100_000)], sat_per_vb: 3.0, rbf: true, stonewall: true, ..Default::default() };
+    let built = a.build(&plan).unwrap();
+    assert!(!built.stonewall);
+    assert!(built.note.as_deref().unwrap_or("").contains("not a Stonewall"), "{:?}", built.note);
+}
