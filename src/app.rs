@@ -450,7 +450,7 @@ impl App {
     }
 
     /// Show the device prompt as it looks while waiting for a PIN, with no device involved.
-    /// For screenshots and for checking the look, `wallet --prompt`.
+    /// For screenshots and for checking the look, `coldbench --prompt`.
     pub fn preview_prompt(&mut self) {
         self.device = Some(DeviceJob {
             id: 0,
@@ -743,7 +743,7 @@ impl App {
 
     fn header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("WALLET").font(legend_font(16.0)).color(VALUE).extra_letter_spacing(2.5));
+            ui.label(RichText::new("COLDBENCH").font(legend_font(16.0)).color(VALUE).extra_letter_spacing(2.5));
             ui.add_space(18.0);
             if self.current.is_some() {
                 let before = self.tab;

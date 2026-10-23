@@ -41,26 +41,26 @@ jobs:
           key: ${{ matrix.target }}
       - run: cargo test --locked --workspace
         if: matrix.target != 'x86_64-apple-darwin'
-      - run: cargo build --release --locked -p wallet --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p coldbench --target ${{ matrix.target }}
       - name: package
         shell: bash
         run: |
-          name=wallet-${{ matrix.target }}
+          name=coldbench-${{ matrix.target }}
           mkdir -p "dist/$name"
           cp README.md LICENSE "dist/$name/"
           cd dist
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "../target/${{ matrix.target }}/release/wallet.exe" "$name/"
+            cp "../target/${{ matrix.target }}/release/coldbench.exe" "$name/"
             7z a "$name.zip" "$name" >/dev/null
             sha256sum "$name.zip" > "$name.zip.sha256"
           else
-            cp "../target/${{ matrix.target }}/release/wallet" "$name/"
+            cp "../target/${{ matrix.target }}/release/coldbench" "$name/"
             tar czf "$name.tar.gz" "$name"
             shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: wallet-${{ matrix.target }}
+          name: coldbench-${{ matrix.target }}
           if-no-files-found: error
           path: |
             dist/*.tar.gz

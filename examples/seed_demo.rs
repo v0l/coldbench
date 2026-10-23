@@ -4,7 +4,7 @@ use bdk_wallet::bitcoin::Network;
 use bdk_wallet::bitcoin::bip32::{Xpriv, Xpub};
 use bdk_wallet::bitcoin::secp256k1::Secp256k1;
 use hww::{Kind, Script};
-use wallet::engine::{Account, Meta};
+use coldbench::engine::{Account, Meta};
 
 const SEED: &str = "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4";
 

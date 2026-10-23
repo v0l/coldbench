@@ -14,4 +14,4 @@ First release.
 - Syncs over every public Esplora and Electrum server at once, each address asked of one
   operator only, in parallel, with merkle proofs checked against headers. Or your own servers.
 
-[0.1.0]: https://github.com/v0l/wallet/releases/tag/v0.1.0
+[0.1.0]: https://github.com/v0l/coldbench/releases/tag/v0.1.0

@@ -76,7 +76,7 @@ impl Electrum {
             w.lock().unwrap_or_else(|e| e.into_inner()).clear();
         });
         let e = Electrum { url: url.to_string(), writer: AsyncMutex::new(write), waiting, next: Mutex::new(0) };
-        e.call("server.version", json!(["wallet", "1.4"])).await?;
+        e.call("server.version", json!(["coldbench", "1.4"])).await?;
         Ok(e)
     }
 

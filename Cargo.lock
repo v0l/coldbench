@@ -582,6 +582,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "coldbench"
+version = "0.1.0"
+dependencies = [
+ "bdk_esplora",
+ "bdk_wallet",
+ "chrono",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui-qr",
+ "egui_bench",
+ "esplora-client",
+ "futures",
+ "hww",
+ "minreq",
+ "reqwest",
+ "rustls 0.23.46",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "webpki-roots 1.0.11",
+ "winresource",
+]
+
+[[package]]
 name = "coldcard"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4208,32 +4234,6 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
-]
-
-[[package]]
-name = "wallet"
-version = "0.1.0"
-dependencies = [
- "bdk_esplora",
- "bdk_wallet",
- "chrono",
- "dirs",
- "eframe",
- "egui",
- "egui-qr",
- "egui_bench",
- "esplora-client",
- "futures",
- "hww",
- "minreq",
- "reqwest",
- "rustls 0.23.46",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "webpki-roots 1.0.11",
- "winresource",
 ]
 
 [[package]]

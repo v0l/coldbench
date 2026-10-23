@@ -1,4 +1,4 @@
-# wallet
+# coldbench
 
 A Bitcoin wallet for hardware signers, in the [bench suite](https://github.com/v0l/bench-suite)
 look. It keeps only public keys; every payment is checked and signed on the device.
@@ -23,10 +23,10 @@ On Linux each device needs its udev rules (HWI ships them in `hwilib/udev`) and 
 ## Use
 
 ```sh
-wallet                 # open the window
-wallet --devices       # list plugged in devices and exit
-wallet --add           # open straight into adding a wallet
-wallet --dir DIR       # keep wallets in DIR instead of the data folder
+coldbench                 # open the window
+coldbench --devices       # list plugged in devices and exit
+coldbench --add           # open straight into adding a wallet
+coldbench --dir DIR       # keep wallets in DIR instead of the data folder
 ```
 
 1. Plug in and unlock the device, press **add wallet**, pick the script type and read the keys.
@@ -39,14 +39,14 @@ wallet --dir DIR       # keep wallets in DIR instead of the data folder
    device, then **broadcast**. A Coldcard used air-gapped works through **save psbt** and dropping
    the signed file back on the window.
 
-Wallets are JSON files in the data folder (`~/.local/share/wallet/wallets` on Linux), one per
+Wallets are JSON files in the data folder (`~/.local/share/coldbench/wallets` on Linux), one per
 account, with labels inside.
 
 ## Without a device
 
 ```sh
 cargo run --example seed_demo /tmp/wdemo
-wallet --dir /tmp/wdemo
+coldbench --dir /tmp/wdemo
 ```
 
 writes watch-only wallets of the public BIP84 test seed, one with real history and one with made

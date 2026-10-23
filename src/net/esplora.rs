@@ -17,7 +17,7 @@ impl Esplora {
     pub fn new(url: &str) -> Esplora {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(25))
-            .user_agent("wallet")
+            .user_agent("coldbench")
             .build()
             .expect("a client with no custom settings builds");
         Esplora { url: url.trim_end_matches('/').to_string(), http }

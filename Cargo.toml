@@ -1,11 +1,11 @@
 [package]
-name = "wallet"
+name = "coldbench"
 description = "Bitcoin wallet for hardware signers: Jade, Coldcard and Trezor, in the bench suite look"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
-repository = "https://github.com/v0l/wallet"
+repository = "https://github.com/v0l/coldbench"
 
 [workspace]
 members = [".", "crates/hww"]
