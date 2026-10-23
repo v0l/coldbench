@@ -60,6 +60,22 @@ coldbench --dir /tmp/wdemo
 writes watch-only wallets of the public BIP84 test seed, one with real history and one with made
 up coins.
 
+### Regtest
+
+To try sending, confirming and bumping a fee with nothing at stake, `scripts/regtest.sh up` starts
+a bitcoind and an Esplora server in Docker, with 101 blocks mined. Then:
+
+```sh
+cargo run --example regtest_demo /tmp/wreg      # a regtest wallet of the test seed, prints an address
+scripts/regtest.sh fund ADDRESS 0.5             # pay it, unconfirmed
+coldbench --dir /tmp/wreg
+scripts/regtest.sh mine                         # confirm what is pending
+scripts/regtest.sh down
+```
+
+The example can also stand in for the device: `regtest_demo /tmp/wreg sign FILE.psbt` signs a
+saved PSBT with the test seed. `cargo test --test regtest -- --ignored` runs the whole flow.
+
 ## Build
 
 ```sh

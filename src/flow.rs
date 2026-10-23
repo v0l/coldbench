@@ -56,6 +56,7 @@ pub fn flow(ui: &mut Ui, inputs: &[End], outputs: &[End], height: f32, amount: &
     let width = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let p = ui.painter_at(rect);
+    let feather = 1.0 / ui.ctx().pixels_per_point();
     p.rect_filled(rect, 2.0, WELL);
     let total: u64 = inputs.iter().map(|e| e.value).sum::<u64>().max(1);
     let inner = rect.shrink2(vec2(LABEL_W + 10.0, 12.0));
@@ -123,7 +124,7 @@ pub fn flow(ui: &mut Ui, inputs: &[End], outputs: &[End], height: f32, amount: &
             }
             let c = e.kind.colour();
             let fill = if lit { c.gamma_multiply(0.85) } else { c.gamma_multiply(0.45) };
-            p.add(ribbon(pos2(x0, a_top), a_w, pos2(x1, b_top), b_w, fill));
+            p.add(ribbon(pos2(x0, a_top), a_w, pos2(x1, b_top), b_w, fill, feather));
             // The end cap and its label.
             let cap_x = if left { inner.left() - 3.0 } else { inner.right() };
             p.rect_filled(Rect::from_min_size(pos2(cap_x, oy), vec2(3.0, ow)), 0.0, c);
@@ -149,23 +150,36 @@ fn clip(s: &str, n: usize) -> String {
 }
 
 /// A band from the left edge `a` (top at `a`, `aw` tall) to the right edge `b`, following an S
-/// curve, as a triangle strip between the curve of its top and the curve of its bottom.
-fn ribbon(a: Pos2, aw: f32, b: Pos2, bw: f32, fill: Color32) -> Shape {
+/// curve, as a triangle strip.
+///
+/// egui does not smooth the edges of a mesh, so a plain strip has stair steps along its long
+/// edges. Each of those gets a fringe `feather` points tall that fades from the fill to nothing,
+/// the same ramp egui puts on its own shapes: four vertices per column, the outer two clear and
+/// the inner two solid, straddling the true edge.
+fn ribbon(a: Pos2, aw: f32, b: Pos2, bw: f32, fill: Color32, feather: f32) -> Shape {
     const STEPS: usize = 28;
-    let curve = |y0: f32, y1: f32, t: f32| {
-        // Smoothstep in y gives the same S as a cubic with flat ends.
-        let s = t * t * (3.0 - 2.0 * t);
-        pos2(a.x + (b.x - a.x) * t, y0 + (y1 - y0) * s)
-    };
     let mut mesh = Mesh::default();
     for i in 0..=STEPS {
         let t = i as f32 / STEPS as f32;
-        mesh.colored_vertex(curve(a.y, b.y, t), fill);
-        mesh.colored_vertex(curve(a.y + aw, b.y + bw, t), fill);
+        // Smoothstep in y gives the same S as a cubic with flat ends.
+        let s = t * t * (3.0 - 2.0 * t);
+        let x = a.x + (b.x - a.x) * t;
+        let top = a.y + (b.y - a.y) * s;
+        let bottom = top + aw + (bw - aw) * s;
+        let half = feather / 2.0;
+        // A band thinner than the fringe keeps a solid middle rather than turning inside out.
+        let inset = half.min((bottom - top) / 2.0);
+        mesh.colored_vertex(pos2(x, top - half), Color32::TRANSPARENT);
+        mesh.colored_vertex(pos2(x, top + inset), fill);
+        mesh.colored_vertex(pos2(x, bottom - inset), fill);
+        mesh.colored_vertex(pos2(x, bottom + half), Color32::TRANSPARENT);
         if i > 0 {
-            let k = (i as u32) * 2;
-            mesh.add_triangle(k - 2, k - 1, k);
-            mesh.add_triangle(k - 1, k + 1, k);
+            let k = (i as u32) * 4;
+            for j in 0..3 {
+                let (p, q) = (k - 4 + j, k + j);
+                mesh.add_triangle(p, p + 1, q);
+                mesh.add_triangle(p + 1, q + 1, q);
+            }
         }
     }
     Shape::mesh(mesh)
@@ -221,9 +235,9 @@ mod tests {
 
     #[test]
     fn a_ribbon_is_a_closed_strip() {
-        let Shape::Mesh(m) = ribbon(pos2(0.0, 0.0), 10.0, pos2(100.0, 50.0), 4.0, Color32::WHITE) else { panic!() };
-        assert_eq!(m.vertices.len(), 2 * 29);
-        assert_eq!(m.indices.len(), 6 * 28);
+        let Shape::Mesh(m) = ribbon(pos2(0.0, 0.0), 10.0, pos2(100.0, 50.0), 4.0, Color32::WHITE, 1.0) else { panic!() };
+        assert_eq!(m.vertices.len(), 4 * 29);
+        assert_eq!(m.indices.len(), 18 * 28);
         assert!(m.indices.iter().all(|&i| (i as usize) < m.vertices.len()));
     }
 

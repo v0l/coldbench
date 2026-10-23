@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Regtest: `scripts/regtest.sh up` starts a bitcoind and an Esplora server in containers, on
+  127.0.0.1:3002 where a regtest wallet looks by default. `fund`, `mine` and `down` drive it, and
+  `cargo test --test regtest -- --ignored` runs the receive, send, confirm and fee bump flow
+  against it. `cargo run --example regtest_demo DIR` makes a regtest wallet of the test seed.
+- The bands of the flow diagram have soft edges instead of stair steps.
+
 ## [0.2.0] - 2026-10-23
 
 - Wallet encryption at rest, as Sparrow has: set a password in Settings, or when adding a
