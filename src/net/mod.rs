@@ -22,7 +22,7 @@ use bdk_wallet::KeychainKind;
 use bdk_wallet::bitcoin::block::Header;
 use bdk_wallet::bitcoin::hashes::{Hash, sha256, sha256d};
 use bdk_wallet::bitcoin::pow::Target;
-use bdk_wallet::bitcoin::{BlockHash, Network, ScriptBuf, Transaction, TxMerkleNode, Txid};
+use bdk_wallet::bitcoin::{BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxMerkleNode, TxOut, Txid};
 use bdk_wallet::chain::spk_client::{FullScanRequest, FullScanResponse};
 use bdk_wallet::chain::{BlockId, CheckPoint, ConfirmationBlockTime, TxUpdate};
 use futures::future::join_all;
@@ -71,6 +71,9 @@ pub struct Hist {
     pub height: Option<u32>,
 }
 
+/// What a transaction's inputs spent, where the server says so in passing (Esplora does).
+pub type Prevouts = Vec<(OutPoint, TxOut)>;
+
 enum Client {
     Esplora(esplora::Esplora),
     Electrum(electrum::Electrum),
@@ -91,10 +94,10 @@ impl Backend {
         Ok(Backend { server, client, limit: Semaphore::new(PER_SERVER) })
     }
 
-    async fn history(&self, spk: &ScriptBuf) -> Result<Vec<Hist>, NetError> {
+    async fn history(&self, spk: &ScriptBuf) -> Result<(Vec<Hist>, Prevouts), NetError> {
         match &self.client {
             Client::Esplora(c) => c.history(spk).await,
-            Client::Electrum(c) => c.history(spk).await,
+            Client::Electrum(c) => Ok((c.history(spk).await?, Vec::new())),
         }
     }
 
@@ -349,6 +352,7 @@ impl Pool {
         let batch = gap.max(self.limit.available_permits() * 2);
         // txid to the server that reported it, and the height it gave.
         let mut found: HashMap<Txid, (Arc<Backend>, Option<u32>)> = HashMap::new();
+        let mut prevouts: BTreeMap<OutPoint, TxOut> = BTreeMap::new();
         let mut last_active = BTreeMap::new();
         let mut scanned = 0usize;
         for keychain in request.keychains() {
@@ -371,7 +375,8 @@ impl Pool {
                     (*i, r)
                 });
                 for (i, r) in join_all(asks).await {
-                    let (b, hist) = r.map_err(|e| format!("an address could not be checked: {e}"))?;
+                    let (b, (hist, prev)) = r.map_err(|e| format!("an address could not be checked: {e}"))?;
+                    prevouts.extend(prev);
                     *self.report.lock().unwrap_or_else(|e| e.into_inner()).spread.entry(b.server.operator.clone()).or_default() += 1;
                     if !hist.is_empty() {
                         active = Some(active.map_or(i, |a| a.max(i)));
@@ -418,10 +423,11 @@ impl Pool {
         });
         let mut tx_update = TxUpdate::default();
         let mut anchors = Vec::new();
+        let mut fetched = Vec::new();
         for r in join_all(jobs).await {
             let (txid, tx, height, anchor) = r.map_err(|e| e.to_string())?;
             if let Some(tx) = tx {
-                tx_update.txs.push(Arc::new(tx));
+                fetched.push((txid, Arc::new(tx)));
             }
             match (height, anchor) {
                 (None, _) => {
@@ -435,6 +441,46 @@ impl Pool {
                 (Some(_), None) => {}
             }
         }
+
+        // What each new transaction's inputs held, so the wallet can show a payment's flow and
+        // fee even when the coins were someone else's. Esplora says so with the history;
+        // otherwise ask the server that reported the transaction for the parents, which it knows
+        // of anyway. These only feed the picture and the fee shown for other people's coins:
+        // what we own is always worked out from transactions checked against their txids.
+        let missing: Vec<(Arc<Backend>, Txid)> = {
+            let mut want = BTreeMap::new();
+            // Only for payments that spend one of ours (an input's parent is also one of the new or
+            // known transactions): those are the ones whose fee the wallet shows. Fetching the
+            // parents of every receive would cost a whole transaction per stranger's coin.
+            let ours: HashSet<Txid> = found.keys().copied().chain(known.iter().copied()).collect();
+            for (txid, tx) in &fetched {
+                let spends_ours = tx.input.iter().any(|i| ours.contains(&i.previous_output.txid));
+                if !spends_ours {
+                    continue;
+                }
+                for i in &tx.input {
+                    if !prevouts.contains_key(&i.previous_output) && !i.previous_output.is_null() {
+                        want.entry(i.previous_output.txid).or_insert_with(|| found[txid].0.clone());
+                    }
+                }
+            }
+            want.into_iter().map(|(t, b)| (b, t)).collect()
+        };
+        let parents = missing.iter().map(|(b, t)| async move { self.on(b, || b.tx(*t)).await.ok() });
+        for parent in join_all(parents).await.into_iter().flatten() {
+            let txid = parent.compute_txid();
+            for (n, o) in parent.output.into_iter().enumerate() {
+                prevouts.insert(OutPoint::new(txid, n as u32), o);
+            }
+        }
+        for (_, tx) in &fetched {
+            for i in &tx.input {
+                if let Some(o) = prevouts.get(&i.previous_output) {
+                    tx_update.txouts.insert(i.previous_output, o.clone());
+                }
+            }
+        }
+        tx_update.txs.extend(fetched.into_iter().map(|(_, t)| t));
 
         let chain_update = match request.chain_tip() {
             Some(local) => Some(self.chain(local, anchors).await.map_err(|e| e.to_string())?),

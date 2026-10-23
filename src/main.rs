@@ -57,6 +57,11 @@ fn main() -> eframe::Result<()> {
             if args.iter().any(|a| a == "--stonewall-demo") {
                 app.demo_stonewall();
             }
+            // Opens one transaction's details, for screenshots.
+            if let Some(t) = args.iter().position(|a| a == "--tx").and_then(|i| args.get(i + 1)).and_then(|t| t.parse().ok()) {
+                app.tab = coldbench::app::Tab::Transactions;
+                app.selected_tx = Some(t);
+            }
             if args.iter().any(|a| a == "--prompt") {
                 app.preview_prompt();
             }

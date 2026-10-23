@@ -413,6 +413,18 @@ impl Account {
             .collect()
     }
 
+    /// The inputs of `tx` as address, value (if known) and whether this wallet owned the coin.
+    /// A coin of someone else's is only known when its transaction is in the wallet.
+    pub fn inputs_of(&self, tx: &Transaction) -> Vec<(String, Option<u64>, bool)> {
+        tx.input
+            .iter()
+            .map(|i| match self.wallet.tx_graph().get_txout(i.previous_output) {
+                Some(o) => (self.address_of(&o.script_pubkey), Some(o.value.to_sat()), self.wallet.is_mine(o.script_pubkey.clone())),
+                None => (units::short(&i.previous_output.to_string(), 10), None, false),
+            })
+            .collect()
+    }
+
     fn address_of(&self, spk: &ScriptBuf) -> String {
         Address::from_script(spk, self.meta.network)
             .map(|a| a.to_string())

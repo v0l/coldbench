@@ -4,7 +4,7 @@
 use super::{Hist, NetError};
 use bdk_wallet::bitcoin::block::Header;
 use bdk_wallet::bitcoin::hashes::{Hash, sha256};
-use bdk_wallet::bitcoin::{BlockHash, Script, Transaction, Txid, consensus};
+use bdk_wallet::bitcoin::{Amount, BlockHash, OutPoint, Script, Transaction, TxOut, Txid, consensus};
 use esplora_client::api::{MerkleProof, Tx};
 use std::time::Duration;
 
@@ -55,9 +55,11 @@ impl Esplora {
     }
 
     /// Every transaction touching `spk`. Esplora pages confirmed history 25 at a time.
-    pub async fn history(&self, spk: &Script) -> Result<Vec<Hist>, NetError> {
+    /// Also returns what each transaction's inputs spent, which Esplora includes.
+    pub async fn history(&self, spk: &Script) -> Result<(Vec<Hist>, super::Prevouts), NetError> {
         let hash = sha256::Hash::hash(spk.as_bytes());
         let mut out = Vec::new();
+        let mut prev = Vec::new();
         let mut last: Option<Txid> = None;
         loop {
             let path = match last {
@@ -68,6 +70,14 @@ impl Esplora {
             let confirmed = page.iter().filter(|t| t.status.confirmed).count();
             let n = page.len();
             last = page.iter().rev().find(|t| t.status.confirmed).map(|t| t.txid);
+            for t in &page {
+                for v in &t.vin {
+                    if let Some(p) = &v.prevout {
+                        let o = TxOut { value: Amount::from_sat(p.value), script_pubkey: p.scriptpubkey.clone() };
+                        prev.push((OutPoint::new(v.txid, v.vout), o));
+                    }
+                }
+            }
             out.extend(page.into_iter().map(|t| Hist { txid: t.txid, height: t.status.block_height.filter(|_| t.status.confirmed) }));
             // The first page holds up to 50 mempool and 25 confirmed; later pages 25 confirmed.
             if confirmed < 25 || n == 0 || last.is_none() {
@@ -76,7 +86,7 @@ impl Esplora {
         }
         out.sort_by_key(|h| h.txid);
         out.dedup_by_key(|h| h.txid);
-        Ok(out)
+        Ok((out, prev))
     }
 
     pub async fn tx(&self, txid: Txid) -> Result<Transaction, NetError> {

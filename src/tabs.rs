@@ -4,14 +4,14 @@
 use crate::app::{App, Browse, FeePick, Purpose, Recipient, Review, SendForm, Tab, Views, home};
 use crate::engine::{Account, SendPlan, network_name};
 use crate::units::{self, Unit};
-use crate::widgets;
+use crate::{flow, widgets};
 use crate::work::Op;
 use bdk_wallet::KeychainKind;
 use bdk_wallet::bitcoin::Network;
 use egui::Ui;
 use egui_bench::prelude::*;
 
-const DETAIL_H: f32 = 230.0;
+const DETAIL_H: f32 = 430.0;
 
 pub fn explorer(network: Network, txid: &str) -> String {
     let base = match network {
@@ -108,6 +108,7 @@ impl App {
             let Some(t) = app.selected_tx.and_then(|id| v.txs.iter().find(|r| r.txid == id)) else { return };
             let network = app.account().map(|a| a.network()).unwrap_or(Network::Bitcoin);
             let outputs = app.account().map(|a| a.outputs_of(&t.tx)).unwrap_or_default();
+            let inputs = app.account().map(|a| a.inputs_of(&t.tx)).unwrap_or_default();
             let txid = t.txid.to_string();
             section(ui, "transaction", &units::short(&txid, 12), |ui| {
                 ui.set_min_height(DETAIL_H - 40.0);
@@ -123,9 +124,31 @@ impl App {
                     let vb = t.tx.vsize() as f64;
                     reading(ui, "fee", format!("{} ({:.1} sat/vB)", unit.with_unit(f as i64), f as f64 / vb.max(1.0)));
                 }
-                for (addr, value, mine) in &outputs {
-                    let tag = if *mine { "  ours" } else { "" };
-                    reading(ui, "output", format!("{} {}{tag}", unit.with_unit(*value as i64), addr));
+                // Every input's value is needed to draw it to scale; a coin of someone else's that
+                // the wallet never saw leaves a gap, so then only the list is shown.
+                if inputs.iter().all(|(_, v, _)| v.is_some()) {
+                    let ins: Vec<(u64, String, bool)> = inputs.iter().map(|(a, v, m)| (v.unwrap_or(0), units::short(a, 8), *m)).collect();
+                    let outs: Vec<(u64, String, flow::Kind)> = outputs
+                        .iter()
+                        .map(|(a, v, m)| {
+                            // Ours on a payment out is change; on a payment in it is what we got.
+                            let k = match (*m, t.delta < 0) {
+                                (true, true) => flow::Kind::Change,
+                                (true, false) => flow::Kind::Ours,
+                                (false, _) => flow::Kind::Pay,
+                            };
+                            (*v, units::short(a, 8), k)
+                        })
+                        .collect();
+                    let (i, o) = flow::ends_of(&ins, &outs, t.fee);
+                    let h = (i.len().max(o.len()) as f32 * 36.0 + 50.0).clamp(150.0, 260.0);
+                    flow::flow(ui, &i, &o, h, &|v| unit.format(v as i64));
+                    flow::key(ui, &[&i, &o]);
+                } else {
+                    for (addr, value, mine) in &outputs {
+                        let tag = if *mine { "  ours" } else { "" };
+                        reading(ui, "output", format!("{} {}{tag}", unit.with_unit(*value as i64), addr));
+                    }
                 }
                 app.label_box(ui, &txid);
                 ui.horizontal(|ui| {
@@ -366,7 +389,7 @@ impl App {
                 note(ui, format!("replaces {} with a higher fee", units::short(&old.to_string(), 10)), WARN);
             }
             section(ui, "pays", "check these on the device before you approve", |ui| {
-                let sent: u64 = built.outputs.iter().filter(|o| !o.change).map(|o| o.value).sum();
+                let sent: u64 = built.outputs.iter().filter(|o| !o.change && !o.decoy).map(|o| o.value).sum();
                 ui.horizontal_top(|ui| {
                     hero(ui, "sending", &unit.format(sent as i64), unit.label(), VALUE);
                     ui.add_space(24.0);
@@ -383,6 +406,22 @@ impl App {
                     let tag = if o.decoy { "decoy" } else if o.change { "change" } else { "to" };
                     Line::new().legend(tag).column(ui, 70.0).value(unit.with_unit(o.value as i64)).column(ui, 220.0).value(o.address.clone()).show(ui);
                 }
+            });
+            section(ui, "flow", "how the coins move, widths to scale", |ui| {
+                let ins: Vec<(u64, String, bool)> = built.inputs.iter().map(|i| (i.value, units::short(&i.address, 8), true)).collect();
+                let outs: Vec<(u64, String, flow::Kind)> = built
+                    .outputs
+                    .iter()
+                    .map(|o| {
+                        let k = if o.decoy { flow::Kind::Decoy } else if o.change { flow::Kind::Change } else { flow::Kind::Pay };
+                        (o.value, units::short(&o.address, 8), k)
+                    })
+                    .collect();
+                let (i, o) = flow::ends_of(&ins, &outs, Some(built.fee));
+                let rows = i.len().max(o.len()) as f32;
+                let h = (rows * 40.0 + 60.0).clamp(180.0, 420.0);
+                flow::flow(ui, &i, &o, h, &|v| unit.format(v as i64));
+                flow::key(ui, &[&i, &o]);
             });
             section(ui, "spends", &format!("{} coins", built.inputs.len()), |ui| {
                 for i in &built.inputs {
