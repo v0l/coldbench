@@ -9,7 +9,7 @@ Pages follow Sparrow's: transactions, send, receive, addresses, UTXOs and settin
 
 | device | connection | tested |
 |---|---|---|
-| Blockstream Jade | USB serial, PIN through Blockstream's blind pin server | found and unlocked |
+| Blockstream Jade | USB serial, PIN through Blockstream's blind pin server | in use |
 | Coldcard Mk3, Mk4, Q | USB HID | builds, not yet on hardware |
 | Trezor Model T, Safe 3, One | WebUSB | builds, not yet on hardware |
 
