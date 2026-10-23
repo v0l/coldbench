@@ -68,3 +68,9 @@ cargo run --release
 ```
 
 Linux needs `libudev-dev` and `libusb-1.0-0-dev`.
+
+## Licence
+
+GPL-3.0-or-later. Copyright © 2026 Kieran Harkin. You may share and change it under the terms of
+the GNU General Public License, version 3 or any later version; see [LICENSE](LICENSE). Releases
+before 0.2.0 were published under MIT and stay available under it.

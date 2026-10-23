@@ -4,7 +4,7 @@ description = "Bitcoin wallet for hardware signers: Jade, Coldcard and Trezor, i
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/v0l/coldbench"
 
 [workspace]

@@ -4,7 +4,7 @@ description = "One blocking interface over the Jade, Coldcard and Trezor hardwar
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
-license = "MIT"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 bitcoin = { version = "0.32", features = ["base64", "rand-std", "serde", "secp-recovery"] }
