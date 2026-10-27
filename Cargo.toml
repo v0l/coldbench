@@ -1,7 +1,7 @@
 [package]
 name = "coldbench"
 description = "Bitcoin wallet for hardware signers: Jade, Coldcard and Trezor, in the bench suite look"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"

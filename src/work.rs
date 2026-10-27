@@ -84,8 +84,16 @@ impl Inbox {
     }
 }
 
+/// Both `ring` and `aws-lc-rs` are compiled in (Electrum asks for one, reqwest brings the other),
+/// so rustls cannot pick a provider for code that does not choose, such as the HTTPS requests the
+/// device libraries make. Choosing `ring` here is what lets those requests work at all.
+pub fn use_ring() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 /// `pin_file` keeps the Electrum certificate pins between runs.
 pub fn hub(ctx: &egui::Context, pin_file: Option<PathBuf>) -> (Hub, Inbox) {
+    use_ring();
     let (tx, rx) = channel();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -165,7 +173,8 @@ impl Hub {
     fn spawn(&self, id: u64, cancel: Cancel, job: impl FnOnce(&Link) -> Outcome + Send + 'static) {
         let link = Link { id, hub: self.clone(), cancel };
         std::thread::spawn(move || {
-            let outcome = job(&link);
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&link)))
+                .unwrap_or_else(|_| Outcome::Failed("something went wrong inside the app, see the terminal it was started from".into()));
             link.send(Event::Done(id, outcome));
         });
     }
@@ -307,5 +316,26 @@ impl Hub {
                 Err(e) => Outcome::Failed(e),
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_job_that_panics_still_reports_so_the_prompt_can_close() {
+        let (hub, inbox) = hub(&egui::Context::default(), None);
+        hub.spawn(7, Cancel::default(), |_| panic!("a library gave up"));
+        for _ in 0..50 {
+            for e in inbox.drain() {
+                if let Event::Done(7, Outcome::Failed(why)) = e {
+                    assert!(why.contains("went wrong"));
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("the panic left no Done event, so the prompt would never close");
     }
 }

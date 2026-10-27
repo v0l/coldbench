@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## [0.2.1] - 2026-10-27
 
+- Fixes signing and unlocking with a Jade, which hung on "checking" in 0.2.0: the PIN server
+  request panicked because no TLS provider was chosen. One is now chosen at startup, and a device
+  job that fails inside a library reports an error and closes the prompt, so Cancel works.
 - Regtest: `scripts/regtest.sh up` starts a bitcoind and an Esplora server in containers, on
   127.0.0.1:3002 where a regtest wallet looks by default. `fund`, `mine` and `down` drive it, and
   `cargo test --test regtest -- --ignored` runs the receive, send, confirm and fee bump flow
