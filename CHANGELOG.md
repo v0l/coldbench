@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.2] - 2026-10-31
+
+- egui and eframe 0.37, which keeps the window running on Wayland when its workspace is hidden.
+
 ## [0.2.1] - 2026-10-27
 
 - Fixes signing and unlocking with a Jade, which hung on "checking" in 0.2.0: the PIN server

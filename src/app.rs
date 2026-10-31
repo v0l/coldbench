@@ -855,13 +855,9 @@ impl App {
     fn dropped(&mut self, ctx: &egui::Context) {
         let files = ctx.input(|i| i.raw.dropped_files.clone());
         for f in files {
-            let bytes = match (&f.bytes, &f.path) {
-                (Some(b), _) => Some(b.to_vec()),
-                (None, Some(p)) => std::fs::read(p).ok(),
-                _ => None,
-            };
-            let labels = f.path.as_ref().is_some_and(|p| {
-                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("jsonl") || x.eq_ignore_ascii_case("json"))
+            let bytes = f.bytes().ok();
+            let labels = f.path().extension().is_some_and(|x| {
+                x.eq_ignore_ascii_case("jsonl") || x.eq_ignore_ascii_case("json")
             });
             match bytes {
                 Some(b) if labels => self.import_labels(&b),

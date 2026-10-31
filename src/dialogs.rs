@@ -21,7 +21,7 @@ impl App {
         }
         let (mut close, mut go) = (false, false);
         let devices = self.devices.clone();
-        let r = egui::Modal::new(egui::Id::new("new wallet")).backdrop_color(backdrop()).show(ctx, |ui| {
+        let r = egui::Modal::new(egui::Id::unique("new wallet")).backdrop_color(backdrop()).show(ctx, |ui| {
             ui.set_width(500.0);
             modal_title(ui, "add a wallet from a hardware signer");
             let n = self.new_wallet.as_mut().expect("checked above");
@@ -110,7 +110,7 @@ impl App {
         let Some(u) = &mut self.unlock else { return };
         let name = u.file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let (mut close, mut go) = (false, false);
-        let r = egui::Modal::new(egui::Id::new("unlock")).backdrop_color(backdrop()).show(ctx, |ui| {
+        let r = egui::Modal::new(egui::Id::unique("unlock")).backdrop_color(backdrop()).show(ctx, |ui| {
             ui.set_width(390.0);
             modal_title(ui, &format!("unlock {name}"));
             row(ui, "password", |ui| {
@@ -166,7 +166,7 @@ impl App {
         let mut cancel = false;
         let mut answer_pin: Option<Option<String>> = None;
         let mut answer_pass: Option<Option<Passphrase>> = None;
-        egui::Modal::new(egui::Id::new("device")).backdrop_color(backdrop()).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("device")).backdrop_color(backdrop()).show(ctx, |ui| {
             ui.set_width(420.0);
             let title = match &job.purpose {
                 Purpose::Import(_) => "reading the keys",
@@ -270,7 +270,7 @@ impl App {
         let mut verify = false;
         let network = self.account().map(|a| a.network()).unwrap_or(Network::Bitcoin);
         let has_wallet = self.current.is_some();
-        let r = egui::Modal::new(egui::Id::new("message")).backdrop_color(backdrop()).show(ctx, |ui| {
+        let r = egui::Modal::new(egui::Id::unique("message")).backdrop_color(backdrop()).show(ctx, |ui| {
             ui.set_width(520.0);
             modal_title(ui, "sign or verify a message");
             let m = self.message.as_mut().expect("checked above");
@@ -337,7 +337,7 @@ impl App {
         let Some(i) = self.removing else { return };
         let name = self.accounts[i].meta.name.clone();
         let (mut close, mut remove) = (false, false);
-        let r = egui::Modal::new(egui::Id::new("remove")).backdrop_color(backdrop()).show(ctx, |ui| {
+        let r = egui::Modal::new(egui::Id::unique("remove")).backdrop_color(backdrop()).show(ctx, |ui| {
             ui.set_width(390.0);
             modal_title(ui, &format!("remove {name}"));
             note(ui, "The watch-only file and its labels are deleted from this computer. The device and its coins are not touched, and the wallet can be added again.", LEGEND);
