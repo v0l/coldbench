@@ -1124,7 +1124,7 @@ impl eframe::App for App {
         false
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         for a in &mut self.accounts {
             let _ = a.save();
         }
