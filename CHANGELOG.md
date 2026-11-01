@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.3] - 2026-11-01
+
+- Copy and paste work again and links open in the browser, which the egui 0.37 bump had broken. The window renders with wgpu instead of glow.
+
 ## [0.2.2] - 2026-10-31
 
 - egui and eframe 0.37, which keeps the window running on Wayland when its workspace is hidden.
