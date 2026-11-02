@@ -114,6 +114,16 @@ pub fn enumerate() -> Vec<Found> {
     found
 }
 
+/// Like [`enumerate`], for when a person has just asked to use a device: a Jade that stayed
+/// silent on an earlier scan (still starting up, say) is asked again.
+pub fn enumerate_fresh() -> Vec<Found> {
+    let mut found = Vec::new();
+    found.extend(jade::enumerate_fresh());
+    found.extend(coldcard::enumerate());
+    found.extend(trezor::enumerate());
+    found
+}
+
 /// Open `device`, unlock it if it needs it (telling `prompt` when the person must act) and read its
 /// identity. Fails with [`Error::Declined`] if `prompt.cancelled()` turns true while waiting.
 pub fn open(

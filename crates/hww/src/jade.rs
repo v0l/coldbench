@@ -47,41 +47,62 @@ const BAD_PARAMETERS: i64 = -32602;
 static SEEN: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
 
 pub fn enumerate() -> Vec<Found> {
+    scan(false)
+}
+
+/// Like [`enumerate`], but asks again every port that did not answer as a Jade before. For a person
+/// who just asked to use the device, so one that was still starting up the first time is found.
+pub fn enumerate_fresh() -> Vec<Found> {
+    scan(true)
+}
+
+fn scan(fresh: bool) -> Vec<Found> {
     let Ok(ports) = serialport::available_ports() else { return Vec::new() };
     let present: Vec<String> = ports
         .iter()
         .filter(|p| matches!(&p.port_type, SerialPortType::UsbPort(u) if IDS.contains(&(u.vid, u.pid))))
         .map(|p| p.port_name.clone())
         .collect();
+    let patience = if fresh { QUICK } else { PROBE };
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    seen.retain(|(p, _)| present.contains(p));
+    jade_ports(&present, &mut seen, fresh, |port| probe(port, patience))
+        .into_iter()
+        .map(|port| Found { kind: Kind::Jade, name: format!("Jade on {port}"), id: port })
+        .collect()
+}
+
+fn jade_ports(
+    present: &[String],
+    seen: &mut Vec<(String, bool)>,
+    fresh: bool,
+    probe: impl Fn(&str) -> Option<bool>,
+) -> Vec<String> {
+    seen.retain(|(p, j)| present.contains(p) && (*j || !fresh));
     let mut found = Vec::new();
     for port in present {
-        let known = seen.iter().find(|(p, _)| *p == port).map(|(_, j)| *j);
+        let known = seen.iter().find(|(p, _)| p == port).map(|(_, j)| *j);
         let is_jade = match known {
             Some(j) => j,
-            None => match probe(&port) {
+            None => match probe(port) {
                 Some(j) => {
                     seen.push((port.clone(), j));
                     j
                 }
-                // Busy or unreadable: ask again next time.
                 None => false,
             },
         };
         if is_jade {
-            found.push(Found { kind: Kind::Jade, id: port.clone(), name: format!("Jade on {port}") });
+            found.push(port.clone());
         }
     }
     found
 }
 
 /// Is a Jade on `port`? `None` when the port could not be asked.
-fn probe(port: &str) -> Option<bool> {
+fn probe(port: &str, patience: Duration) -> Option<bool> {
     let mut link = Link::connect(port).ok()?;
-    match link.rpc(&Silent, "get_version_info", nonblocking(), Some(PROBE)) {
+    match link.rpc(&Silent, "get_version_info", nonblocking(), Some(patience)) {
         Ok(v) => Some(text_of(get(&v, "BOARD_TYPE")).unwrap_or_default().to_uppercase().contains("JADE")),
-        // Something answered, but not in CBOR: another kind of board.
         Err(Error::Protocol(_)) => Some(false),
         Err(Error::Io(m)) if m.contains("did not answer") => Some(false),
         Err(_) => None,
@@ -579,6 +600,23 @@ fn relay(params: &Value) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_port_that_stayed_silent_is_asked_again_when_a_person_wants_the_device() {
+        let ports = vec!["/dev/ttyUSB0".to_string()];
+        let mut seen = Vec::new();
+        assert!(jade_ports(&ports, &mut seen, false, |_| Some(false)).is_empty());
+        assert!(jade_ports(&ports, &mut seen, false, |_| Some(true)).is_empty(), "timer scans do not re-ask");
+        assert_eq!(jade_ports(&ports, &mut seen, true, |_| Some(true)), ports);
+        assert_eq!(jade_ports(&ports, &mut seen, false, |_| panic!("asked a known Jade again")), ports);
+    }
+
+    #[test]
+    fn a_jade_that_unplugs_is_forgotten() {
+        let mut seen = vec![("/dev/ttyUSB0".to_string(), true)];
+        assert!(jade_ports(&[], &mut seen, false, |_| None).is_empty());
+        assert!(seen.is_empty());
+    }
 
     #[test]
     fn versions_ignore_suffixes() {

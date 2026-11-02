@@ -199,7 +199,7 @@ impl Hub {
         self.spawn(id, cancel, move |link| {
             let candidates: Vec<Found> = match chosen {
                 Some(f) => vec![f],
-                None => hww::enumerate().into_iter().filter(|f| Some(f.kind) == kind || kind.is_none()).collect(),
+                None => hww::enumerate_fresh().into_iter().filter(|f| Some(f.kind) == kind || kind.is_none()).collect(),
             };
             if candidates.is_empty() {
                 let what = kind.map(|k| k.label()).unwrap_or("hardware wallet");
