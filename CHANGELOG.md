@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The notification at the bottom of the window is now a toast with a fixed width range, and its dismiss button no longer wraps.
+
 ## [0.2.3] - 2026-11-01
 
 - Copy and paste work again and links open in the browser, which the egui 0.37 bump had broken. The window renders with wgpu instead of glow.

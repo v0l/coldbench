@@ -1021,22 +1021,19 @@ impl App {
 
     fn footer_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            match &self.notice {
-                Some((ok, text, _)) => status(ui, *ok, text),
-                None => match self.account() {
-                    Some(a) => {
-                        let syncing = self.pending.iter().find(|(_, p)| matches!(p, Pending::Sync(f) if f == a.file())).map(|(id, _)| *id);
-                        let server = match syncing.and_then(|id| self.progress.get(&id)) {
-                            Some(n) => format!("{}, {n} addresses checked", self.server(a)),
-                            None => self.server(a),
-                        };
-                        let tip = a.tip();
-                        Line::new().legend("server").value(server).gap(14.0).legend("height").measured(tip.to_string()).show(ui);
-                    }
-                    None => {
-                        Line::new().note("no wallet open").show(ui);
-                    }
-                },
+            match self.account() {
+                Some(a) => {
+                    let syncing = self.pending.iter().find(|(_, p)| matches!(p, Pending::Sync(f) if f == a.file())).map(|(id, _)| *id);
+                    let server = match syncing.and_then(|id| self.progress.get(&id)) {
+                        Some(n) => format!("{}, {n} addresses checked", self.server(a)),
+                        None => self.server(a),
+                    };
+                    let tip = a.tip();
+                    Line::new().legend("server").value(server).gap(14.0).legend("height").measured(tip.to_string()).show(ui);
+                }
+                None => {
+                    Line::new().note("no wallet open").show(ui);
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some((price, code)) = self.price() {
@@ -1144,6 +1141,12 @@ impl eframe::App for App {
         egui::Panel::top("header")
             .frame(egui::Frame::NONE.fill(CHASSIS).inner_margin(Margin { left: 12, right: 12, top: 8, bottom: 6 }))
             .show(root, |ui| self.header(ui));
+        if let Some((ok, text, _)) = self.notice.clone() {
+            let tone = if ok { Tone::Ok } else { Tone::Fault };
+            if egui_bench::toast::toast(&ctx, "notice", &text, tone) {
+                self.notice = None;
+            }
+        }
         egui::Panel::bottom("footer")
             .frame(egui::Frame::NONE.fill(CHASSIS).inner_margin(Margin { left: 12, right: 12, top: 5, bottom: 5 }))
             .show(root, |ui| self.footer_bar(ui));
