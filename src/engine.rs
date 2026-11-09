@@ -848,6 +848,7 @@ pub fn verify_message(address: &str, message: &str, signature: &str, network: Ne
     Ok(candidates.contains(&spk))
 }
 
+pub mod analysis;
 pub mod labels;
 mod stonewall;
 

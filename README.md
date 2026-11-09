@@ -50,6 +50,10 @@ it. Labels for another account in the file are left out, and the window says how
 Wallets are JSON files in the data folder (`~/.local/share/coldbench/wallets` on Linux), one per
 account, with labels inside.
 
+### Privacy review
+
+The heuristics a chain analyst uses (change detection, common input ownership, coinjoin detection, wallet fingerprinting, payout shapes) are ported to `src/engine/analysis.rs` and run on your own transactions. They come from [TRACEY](https://github.com/L0laL33tz/TRACEY.diy) (MIT), which cites mempool.space's coinjoin rules and Ishaana Misra's [wallet fingerprinting](https://github.com/ishaanam/wallet-fingerprinting) work.
+
 ## Without a device
 
 ```sh
