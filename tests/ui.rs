@@ -113,14 +113,40 @@ fn labelled(h: &Harness<'_, App>, name: &str) -> Vec<(usize, egui::Rect)> {
 fn header_and_utxo_toolbar_keys_stay_on_one_row_in_a_small_window() {
     let (dir, _) = seeded("toolbar");
     for size in [vec2(800.0, 600.0), vec2(1024.0, 640.0)] {
-        let h = harness(dir.clone(), size, |a| a.tab = Tab::Utxos);
+        let h = harness(dir.clone(), size, |a| {
+            a.tab = Tab::Utxos;
+            let all: Vec<_> = a.account_mut().expect("a wallet is open").utxos().iter().map(|u| u.outpoint).collect();
+            a.selected_utxos.extend(all);
+        });
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let mut keys = Vec::new();
         for name in ["add wallet", "clear", "freeze", "send selected"] {
             let drawn = labelled(&h, name);
             assert!(!drawn.is_empty(), "{size:?}: {name} is not drawn");
             for (rows, rect) in drawn {
                 assert_eq!(rows, 1, "{size:?}: {name} wraps onto {rows} rows");
                 assert!(screen.contains_rect(rect), "{size:?}: {name} at {rect:?} is off screen");
+                keys.push((name, rect));
+            }
+        }
+        let mut readouts = Vec::new();
+        for c in &h.output().shapes {
+            let mut stack = vec![&c.shape];
+            while let Some(s) = stack.pop() {
+                match s {
+                    Shape::Text(t) if t.galley.text().to_lowercase().contains("selected") && t.galley.text().contains("BTC") => {
+                        readouts.push(egui::Rect::from_min_size(t.pos, t.galley.size()))
+                    }
+                    Shape::Vec(v) => stack.extend(v.iter()),
+                    _ => {}
+                }
+            }
+        }
+        assert!(!readouts.is_empty(), "{size:?}: the selection readout is not drawn");
+        for r in readouts {
+            assert!(screen.contains_rect(r), "{size:?}: readout at {r:?} is off screen");
+            for (name, k) in &keys {
+                assert!(!r.intersects(*k), "{size:?}: readout {r:?} overlaps {name} {k:?}");
             }
         }
     }

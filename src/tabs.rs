@@ -726,15 +726,16 @@ impl App {
             app.selected_utxos.retain(|o| v.utxos.iter().any(|u| u.outpoint == *o));
             let chosen: Vec<&crate::engine::UtxoRow> = v.utxos.iter().filter(|u| app.selected_utxos.contains(&u.outpoint)).collect();
             let total: u64 = chosen.iter().map(|u| u.value).sum();
-            ui.horizontal(|ui| {
-                Line::new()
-                    .legend("coins")
-                    .measured(v.utxos.len().to_string())
-                    .gap(14.0)
-                    .legend("selected")
-                    .set(format!("{} ({})", chosen.len(), app.with_worth(unit.with_unit(total as i64), total as i64)))
-                    .show(ui);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let readout = Line::new()
+                .legend("coins")
+                .measured(v.utxos.len().to_string())
+                .gap(14.0)
+                .legend("selected")
+                .set(format!("{} ({})", chosen.len(), app.with_worth(unit.with_unit(total as i64), total as i64)));
+            let frozen_label = if !chosen.is_empty() && chosen.iter().all(|u| u.frozen) { "unfreeze" } else { "freeze" };
+            let keys_w: f32 = ["send selected", frozen_label, "clear"].iter().map(|l| Key::new(*l).width(ui)).sum::<f32>() + 2.0 * ui.spacing().item_spacing.x;
+            let narrow = readout.measure(ui).x + keys_w + 24.0 > ui.available_width();
+            let keys = |app: &mut App, ui: &mut Ui| {
                     let any = !chosen.is_empty();
                     if widgets::fixed(ui, Key::new("send selected").solid(READOUT).enabled(any && chosen.iter().all(|u| !u.frozen))).clicked() {
                         app.send.only = Some(chosen.iter().map(|u| u.outpoint).collect());
@@ -754,8 +755,17 @@ impl App {
                     if widgets::fixed(ui, Key::new("clear").outline(VALUE).enabled(any)).clicked() {
                         app.selected_utxos.clear();
                     }
+            };
+            let right = egui::Layout::right_to_left(egui::Align::Center);
+            if narrow {
+                readout.show(ui);
+                ui.horizontal(|ui| ui.with_layout(right, |ui| keys(app, ui)));
+            } else {
+                ui.horizontal(|ui| {
+                    readout.show(ui);
+                    ui.with_layout(right, |ui| keys(app, ui));
                 });
-            });
+            }
             if v.utxos.is_empty() {
                 section(ui, "no coins", "this wallet holds nothing yet", |ui| {
                     note(ui, "Coins appear here once a payment to one of its addresses is seen. Select them to freeze them or to spend only those.", LEGEND);
