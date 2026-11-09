@@ -191,6 +191,7 @@ pub struct Built {
     pub stonewall: bool,
     /// Why a Stonewall that was asked for could not be made.
     pub note: Option<String>,
+    pub findings: Vec<analysis::Finding>,
 }
 
 impl Account {
@@ -705,7 +706,33 @@ impl Account {
             .collect();
         let out_total: u64 = outputs.iter().map(|o| o.value).sum();
         let fee = in_total.checked_sub(out_total).ok_or("the outputs add up to more than the inputs")?;
-        Ok(Built { psbt, inputs, outputs, fee, sat_per_vb, label, stonewall: false, note: None })
+        let findings = self.analyse(&psbt);
+        Ok(Built { psbt, inputs, outputs, fee, sat_per_vb, label, stonewall: false, note: None, findings })
+    }
+
+    fn analyse(&self, psbt: &Psbt) -> Vec<analysis::Finding> {
+        let tx = &psbt.unsigned_tx;
+        let prevouts: Vec<bitcoin::TxOut> =
+            (0..tx.input.len()).filter_map(|i| bdk_wallet::PsbtUtils::get_utxo_for(psbt, i)).collect();
+        let labels: Vec<String> = tx
+            .input
+            .iter()
+            .map(|i| {
+                let own = self.label(&i.previous_output.to_string());
+                if own.is_empty() { self.label(&i.previous_output.txid.to_string()) } else { own }.to_string()
+            })
+            .collect();
+        let own: Vec<bool> = tx.output.iter().map(|o| self.wallet.is_mine(o.script_pubkey.clone())).collect();
+        let used: std::collections::HashSet<ScriptBuf> =
+            self.wallet.list_output().map(|o| o.txout.script_pubkey).collect();
+        let reused: Vec<bool> = tx.output.iter().map(|o| used.contains(&o.script_pubkey)).collect();
+        analysis::review(&analysis::Subject {
+            tx,
+            prevouts: &prevouts,
+            own_outputs: &own,
+            input_labels: &labels,
+            reused_outputs: &reused,
+        })
     }
 
     /// Put the signatures a device gave back into our copy.

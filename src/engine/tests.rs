@@ -483,3 +483,21 @@ fn the_locktime_is_the_tip_or_up_to_99_below_it() {
     }
     assert!((60..=400).contains(&below), "about one in ten, got {below}");
 }
+
+#[test]
+fn a_send_that_merges_differently_labelled_coins_raises_the_cluster_warning() {
+    let dir = tmp("cluster");
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    let first = a.receive().address;
+    let t1 = fund(&mut a, &first, 60_000, 100);
+    let second = a.receive().address;
+    let t2 = fund(&mut a, &second, 60_000, 101);
+    a.set_label(&t1.to_string(), "exchange");
+    a.set_label(&t2.to_string(), "salary");
+    let to = a.parse_address("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").unwrap();
+    let built = a
+        .build(&SendPlan { recipients: vec![(to, 90_123)], sat_per_vb: 3.0, rbf: true, ..Default::default() })
+        .unwrap();
+    assert_eq!(built.inputs.len(), 2);
+    assert!(built.findings.iter().any(|f| f.text.contains("exchange") && f.text.contains("salary")), "{:?}", built.findings);
+}

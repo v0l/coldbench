@@ -2,6 +2,7 @@
 //! and settings.
 
 use crate::app::{App, Browse, FeePick, Purpose, Recipient, Review, SendForm, Tab, Views, home};
+use crate::engine::analysis::Severity;
 use crate::engine::{Account, SendPlan, network_name};
 use crate::units::{self, Unit};
 use crate::{flow, widgets};
@@ -526,6 +527,19 @@ impl App {
                 for o in &built.outputs {
                     let tag = if o.decoy { "decoy" } else if o.change { "change" } else { "to" };
                     Line::new().legend(tag).column(ui, 70.0).value(worth(unit.with_unit(o.value as i64), o.value as i64)).column(ui, 220.0).value(o.address.clone()).show(ui);
+                }
+            });
+            section(ui, "analyst", "what a chain analyst reads from this transaction", |ui| {
+                for f in &built.findings {
+                    let (tag, colour) = match f.severity {
+                        Severity::Good => ("fine", OK),
+                        Severity::Notice => ("notice", WARN),
+                        Severity::Warning => ("warning", FAULT),
+                    };
+                    Line::new().legend(tag).column(ui, 70.0).value(f.text.clone()).tint(colour).wrapped(ui);
+                    if let Some(fix) = &f.fix {
+                        Line::new().legend("fix").column(ui, 70.0).note(fix.clone()).wrapped(ui);
+                    }
                 }
             });
             section(ui, "flow", "how the coins move, widths to scale", |ui| {
