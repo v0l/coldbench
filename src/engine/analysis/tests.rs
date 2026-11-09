@@ -338,3 +338,32 @@ fn a_coinjoin_review_does_not_assume_one_owner() {
     assert!(found.iter().any(|f| f.text.contains("coinjoin") && f.severity == Severity::Good));
     assert!(found.iter().all(|f| !f.text.contains("join coins labelled")));
 }
+
+fn facts<'a>(tx: &'a Transaction, vout: usize, value: u64, receipts: usize, labels: &'a [String]) -> CoinFacts<'a> {
+    CoinFacts { value, address_receipts: receipts, made_by: tx, vout, parent_labels: labels }
+}
+
+#[test]
+fn coin_risks_flag_reuse_dust_toxic_change_and_kyc_merges() {
+    let (plain, _) = payment_with_change();
+    assert!(coin_risks(&facts(&plain, 1, 129_000, 1, &[])).is_empty());
+
+    let reused = coin_risks(&facts(&plain, 1, 129_000, 2, &[]));
+    assert!(reused.iter().any(|f| f.text.contains("address reused")));
+
+    let dust = coin_risks(&facts(&plain, 1, 600, 1, &[]));
+    assert!(dust.iter().any(|f| f.text.starts_with("dust")));
+
+    let inputs: Vec<(u8, TxOut)> = (1..=5).map(|n| (n, coin(wpkh(n), 1_000_000))).collect();
+    let mut outs: Vec<TxOut> = (20..24).map(|n| coin(wpkh(n), 1_000_000)).collect();
+    outs.push(coin(wpkh(30), 77_777));
+    let (cj, _) = build(&CORE, &inputs, outs);
+    assert!(coin_risks(&facts(&cj, 4, 77_777, 1, &[])).iter().any(|f| f.text.starts_with("toxic change")));
+    assert!(coin_risks(&facts(&cj, 0, 1_000_000, 1, &[])).is_empty());
+
+    let labels = vec!["Kraken withdrawal".to_string(), "salary".to_string()];
+    let merged = coin_risks(&facts(&plain, 1, 129_000, 1, &labels));
+    let m = merged.iter().find(|f| f.text.contains("merging")).unwrap();
+    assert_eq!(m.severity, Severity::Warning);
+    assert!(m.text.contains("KYC"));
+}

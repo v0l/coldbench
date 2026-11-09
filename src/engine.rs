@@ -148,6 +148,7 @@ pub struct UtxoRow {
     pub confirmations: u32,
     pub frozen: bool,
     pub change: bool,
+    pub risks: Vec<analysis::Finding>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -401,10 +402,15 @@ impl Account {
 
     pub fn utxos(&self) -> Vec<UtxoRow> {
         let tip = self.tip();
+        let mut receipts: HashMap<ScriptBuf, usize> = HashMap::new();
+        for o in self.wallet.list_output() {
+            *receipts.entry(o.txout.script_pubkey.clone()).or_default() += 1;
+        }
         let mut rows: Vec<UtxoRow> = self
             .wallet
             .list_unspent()
             .map(|u| {
+                let risks = self.coin_risks(&u, receipts.get(&u.txout.script_pubkey).copied().unwrap_or(1));
                 let key = u.outpoint.to_string();
                 let height = match &u.chain_position {
                     bdk_wallet::chain::ChainPosition::Confirmed { anchor, .. } => {
@@ -424,11 +430,29 @@ impl Account {
                     confirmations: height.map(|h| tip.saturating_sub(h) + 1).unwrap_or(0),
                     frozen: self.wallet.is_outpoint_locked(u.outpoint),
                     change: u.keychain == KeychainKind::Internal,
+                    risks,
                 }
             })
             .collect();
         rows.sort_by(|a, b| b.value.cmp(&a.value).then(a.outpoint.cmp(&b.outpoint)));
         rows
+    }
+
+    fn input_label(&self, op: OutPoint) -> String {
+        let own = self.label(&op.to_string());
+        if own.is_empty() { self.label(&op.txid.to_string()) } else { own }.to_string()
+    }
+
+    fn coin_risks(&self, u: &bdk_wallet::LocalOutput, receipts: usize) -> Vec<analysis::Finding> {
+        let Some(node) = self.wallet.tx_graph().get_tx(u.outpoint.txid) else { return Vec::new() };
+        let parents: Vec<String> = node.input.iter().map(|i| self.input_label(i.previous_output)).collect();
+        analysis::coin_risks(&analysis::CoinFacts {
+            value: u.txout.value.to_sat(),
+            address_receipts: receipts,
+            made_by: &node,
+            vout: u.outpoint.vout as usize,
+            parent_labels: &parents,
+        })
     }
 
     pub fn addresses(&self, keychain: KeychainKind) -> Vec<AddrRow> {

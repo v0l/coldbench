@@ -787,7 +787,7 @@ impl App {
                 return;
             }
             let single = (chosen.len() == 1).then(|| chosen[0].clone());
-            let room = (ui.available_height() - if single.is_some() { 150.0 } else { 0.0 } - ROW_H).max(80.0);
+            let room = (ui.available_height() - single.as_ref().map_or(0.0, |u| 150.0 + 36.0 * u.risks.len() as f32) - ROW_H).max(80.0);
             let price = app.price();
             let fiat_of = |sats: i64| price.as_ref().map(|(p, c)| units::fiat(sats, *p, c)).unwrap_or_default();
             let k = usize::from(price.is_some());
@@ -800,8 +800,9 @@ impl App {
             let picked = widgets::rows(ui, "utxos", &cols, widgets::Give { flex: &[2, 3], spare: &[1], height: room }, v.utxos.len(), &|i| app.selected_utxos.contains(&v.utxos[i].outpoint), |i, p, r, at| {
                 let u = &v.utxos[i];
                 let on = app.selected_utxos.contains(&u.outpoint);
-                let mark = if u.frozen { "f" } else if on { "x" } else { "" };
-                at.put(p, r, 0, mark, if u.frozen { WARN } else { READOUT });
+                let mark = format!("{}{}", if u.frozen { "f" } else if on { "x" } else { "" }, if u.risks.is_empty() { "" } else { "!" });
+                let risky = u.risks.iter().any(|f| f.severity == Severity::Warning);
+                at.put(p, r, 0, &mark, if u.frozen || risky { WARN } else { READOUT });
                 at.put(p, r, 1, &units::short(&u.outpoint.to_string(), 10), LEGEND);
                 at.put(p, r, 2, &u.address, if u.change { LEGEND } else { VALUE });
                 at.put(p, r, 3, &u.label, VALUE);
@@ -822,9 +823,16 @@ impl App {
                 section(ui, "coin", &u.outpoint.to_string(), |ui| {
                     reading(ui, "state", if u.frozen { "frozen, never spent" } else if u.change { "change" } else { "received" });
                     app.label_box(ui, &u.outpoint.to_string());
+                    for f in &u.risks {
+                        let colour = if f.severity == Severity::Warning { FAULT } else { WARN };
+                        Line::new().legend("risk").column(ui, 70.0).value(f.text.clone()).tint(colour).wrapped(ui);
+                        if let Some(fix) = &f.fix {
+                            Line::new().legend("fix").column(ui, 70.0).note(fix.clone()).wrapped(ui);
+                        }
+                    }
                 });
             }
-            hint(ui, "Click rows to select coins. f marks a frozen coin.");
+            hint(ui, "Click rows to select coins. f marks a frozen coin, ! a coin an analyst can link: select it to see why.");
         });
     }
 

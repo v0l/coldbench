@@ -624,5 +624,68 @@ pub fn review(s: &Subject) -> Vec<Finding> {
     out
 }
 
+pub const DUST_RISK: u64 = 1_000;
+
+pub fn is_kyc_label(label: &str) -> bool {
+    let l = label.to_lowercase();
+    ["kyc", "exchange", "coinbase", "kraken", "binance", "bitstamp", "bitpanda", "strike"].iter().any(|k| l.contains(k))
+}
+
+pub fn toxic_change(tx: &Transaction, vout: usize) -> bool {
+    if tx.input.len() < 5 || tx.output.len() < 5 {
+        return false;
+    }
+    let mut counts: HashMap<u64, usize> = HashMap::new();
+    for o in &tx.output {
+        *counts.entry(o.value.to_sat()).or_default() += 1;
+    }
+    let equal = counts.values().copied().max().unwrap_or(0);
+    equal >= 3 && tx.output.get(vout).is_some_and(|o| counts[&o.value.to_sat()] == 1)
+}
+
+pub struct CoinFacts<'a> {
+    pub value: u64,
+    pub address_receipts: usize,
+    pub made_by: &'a Transaction,
+    pub vout: usize,
+    pub parent_labels: &'a [String],
+}
+
+pub fn coin_risks(c: &CoinFacts) -> Vec<Finding> {
+    let mut out = Vec::new();
+    if c.address_receipts > 1 {
+        out.push(finding(
+            Severity::Warning,
+            format!("address reused: it has received {} times, so those payments are linked", c.address_receipts),
+            Some("spend it apart from other coins and use a fresh address next time"),
+        ));
+    }
+    if c.value < DUST_RISK {
+        out.push(finding(
+            Severity::Notice,
+            "dust: spending it costs about what it is worth, and a dust attack may be tracking it",
+            Some("freeze it instead of spending it"),
+        ));
+    }
+    if toxic_change(c.made_by, c.vout) {
+        out.push(finding(
+            Severity::Warning,
+            "toxic change: left over from a coinjoin, it links back to the mix",
+            Some("freeze it, or spend it alone"),
+        ));
+    }
+    let sources: BTreeSet<&str> = c.parent_labels.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    if sources.len() > 1 {
+        let kyc = sources.iter().any(|l| is_kyc_label(l));
+        let names: Vec<&str> = sources.into_iter().collect();
+        out.push(finding(
+            if kyc { Severity::Warning } else { Severity::Notice },
+            format!("made by merging coins labelled {}{}", names.join(", "), if kyc { ", one of them a KYC source" } else { "" }),
+            Some("keep sources apart when spending"),
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests;
