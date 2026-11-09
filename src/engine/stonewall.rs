@@ -144,6 +144,7 @@ impl Account {
 
         // Built twice: first to learn the fee of exactly this shape, then with change A set so
         // each side pays half of it. Same inputs and outputs both times, so the same fee.
+        let locktime = bdk_wallet::bitcoin::absolute::LockTime::from_height(super::blend_in_locktime(self.tip())).expect("a height");
         let mut fee = 0u64;
         let mut psbt = None;
         for pass in 0..2 {
@@ -152,6 +153,8 @@ impl Account {
                 .ok_or("one side cannot pay its share of the fee")?;
             let mut t = self.wallet.build_tx();
             t.fee_rate(fee_rate);
+            t.version(2);
+            t.nlocktime(locktime);
             if !plan.rbf {
                 t.set_exact_sequence(Sequence::ENABLE_LOCKTIME_NO_RBF);
             }
