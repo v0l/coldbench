@@ -91,3 +91,37 @@ fn transaction_detail_keys_are_reachable_in_a_small_window() {
         assert!(h.state().review.as_ref().is_some_and(|r| r.replaces == Some(txid)));
     }
 }
+
+fn labelled(h: &Harness<'_, App>, name: &str) -> Vec<(usize, egui::Rect)> {
+    let mut found = Vec::new();
+    for c in &h.output().shapes {
+        let mut stack = vec![&c.shape];
+        while let Some(s) = stack.pop() {
+            match s {
+                Shape::Text(t) if t.galley.text().trim().eq_ignore_ascii_case(name) => {
+                    found.push((t.galley.rows.len(), egui::Rect::from_min_size(t.pos, t.galley.size())))
+                }
+                Shape::Vec(v) => stack.extend(v.iter()),
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn header_and_utxo_toolbar_keys_stay_on_one_row_in_a_small_window() {
+    let (dir, _) = seeded("toolbar");
+    for size in [vec2(800.0, 600.0), vec2(1024.0, 640.0)] {
+        let h = harness(dir.clone(), size, |a| a.tab = Tab::Utxos);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        for name in ["add wallet", "clear", "freeze", "send selected"] {
+            let drawn = labelled(&h, name);
+            assert!(!drawn.is_empty(), "{size:?}: {name} is not drawn");
+            for (rows, rect) in drawn {
+                assert_eq!(rows, 1, "{size:?}: {name} wraps onto {rows} rows");
+                assert!(screen.contains_rect(rect), "{size:?}: {name} at {rect:?} is off screen");
+            }
+        }
+    }
+}
