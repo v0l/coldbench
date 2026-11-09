@@ -875,7 +875,8 @@ impl App {
             ui.add_space(18.0);
             if self.current.is_some() {
                 let before = self.tab;
-                ui.allocate_ui(egui::vec2(480.0, 24.0), |ui| tabs(
+                let tabs_w = (ui.available_width() - 330.0).clamp(200.0, 480.0);
+                ui.allocate_ui(egui::vec2(tabs_w, 24.0), |ui| tabs(
                     ui,
                     &mut self.tab,
                     &[
@@ -942,7 +943,7 @@ impl App {
                         self.sync(i);
                     }
                 }
-                if ui.add(Key::new("add wallet").solid(READOUT)).clicked() {
+                if crate::widgets::fixed(ui, Key::new("add wallet").solid(READOUT)).clicked() {
                     self.new_wallet = Some(NewWallet::default());
                     self.devices_at = None;
                 }

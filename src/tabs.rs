@@ -736,13 +736,13 @@ impl App {
                     .show(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let any = !chosen.is_empty();
-                    if ui.add(Key::new("send selected").solid(READOUT).enabled(any && chosen.iter().all(|u| !u.frozen))).clicked() {
+                    if widgets::fixed(ui, Key::new("send selected").solid(READOUT).enabled(any && chosen.iter().all(|u| !u.frozen))).clicked() {
                         app.send.only = Some(chosen.iter().map(|u| u.outpoint).collect());
                         app.tab = Tab::Send;
                     }
                     let all_frozen = any && chosen.iter().all(|u| u.frozen);
                     let label = if all_frozen { "unfreeze" } else { "freeze" };
-                    if ui.add(Key::new(label).outline(VALUE).enabled(any)).on_hover_text("frozen coins are never spent").clicked() {
+                    if widgets::fixed(ui, Key::new(label).outline(VALUE).enabled(any)).on_hover_text("frozen coins are never spent").clicked() {
                         let ops: Vec<_> = chosen.iter().map(|u| u.outpoint).collect();
                         if let Some(a) = app.account_mut() {
                             for o in ops {
@@ -751,7 +751,7 @@ impl App {
                             let _ = a.save();
                         }
                     }
-                    if ui.add(Key::new("clear").outline(VALUE).enabled(any)).clicked() {
+                    if widgets::fixed(ui, Key::new("clear").outline(VALUE).enabled(any)).clicked() {
                         app.selected_utxos.clear();
                     }
                 });

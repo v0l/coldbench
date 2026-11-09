@@ -4,6 +4,12 @@ use egui::{Rect, Sense, Ui, Vec2};
 use egui_bench::prelude::{BAND, READOUT, ROW_H, WELL};
 use egui_bench::table;
 
+pub fn fixed(ui: &mut Ui, key: egui_bench::prelude::Key) -> egui::Response {
+    let size = Vec2::new(key.width(ui), egui_bench::prelude::KEY_H);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    key.paint(ui, rect)
+}
+
 /// A table with a header and rows that answer clicks. `paint(i, painter, rect, x_of_column)`
 /// draws row `i`. Returns the row clicked, if any. Scrolls by itself, showing only visible rows.
 pub struct Give<'a> {
@@ -184,6 +190,26 @@ pub fn wrapping<R>(ui: &mut Ui, gap: f32, body: impl FnOnce(&mut Ui) -> R) -> R 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fixed_key_keeps_its_measured_width_in_a_narrow_row() {
+        use egui_bench::prelude::Key;
+        let ctx = egui::Context::default();
+        egui_bench::install(&ctx);
+        let mut wide = 0.0;
+        let mut narrow = 0.0;
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            {
+                wide = fixed(ui, Key::new("add wallet")).rect.width();
+                ui.allocate_ui(Vec2::new(20.0, 40.0), |ui| {
+                    narrow = fixed(ui, Key::new("add wallet")).rect.width();
+                });
+            }
+        });
+        out.textures_delta.clear();
+        assert!(wide > 60.0);
+        assert_eq!(wide, narrow);
+    }
 
     #[test]
     fn bech32_is_upper_cased_in_the_uri() {
