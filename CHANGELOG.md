@@ -4,6 +4,8 @@
 
 - Signing, showing an address or signing a message with a Jade scans for it again if an earlier scan got no answer from the port, instead of failing with "no Jade found". The scan waits up to 4 seconds for the Jade to answer.
 - The notification at the bottom of the window is now a toast with a fixed width range, and its dismiss button no longer wraps.
+- The unconfirmed amount and its fiat value sit on one line each, moving under the balance in a narrow window instead of wrapping. Fiat columns are as wide as their widest value; the label column gives first, then the balance column is dropped.
+- The transaction and address details scroll, so their keys (copy txid, view in explorer, bump fee) stay reachable in a small window.
 
 ## [0.2.3] - 2026-11-01
 

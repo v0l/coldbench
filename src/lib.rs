@@ -1,4 +1,5 @@
 pub mod app;
+pub mod demo;
 mod dialogs;
 pub mod engine;
 mod flow;

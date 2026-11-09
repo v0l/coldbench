@@ -519,6 +519,11 @@ impl Account {
         self.row_for(info.keychain, info.index)
     }
 
+    pub fn next_change(&mut self) -> ScriptBuf {
+        self.revision += 1;
+        self.wallet.reveal_next_address(KeychainKind::Internal).address.script_pubkey()
+    }
+
     fn row_for(&self, keychain: KeychainKind, index: u32) -> AddrRow {
         self.addresses(keychain)
             .into_iter()

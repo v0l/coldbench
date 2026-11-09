@@ -53,4 +53,6 @@ fn main() {
         a.add_sent(&tx, label).unwrap();
     }
     println!("{}", a.file().display());
+    let (busy, txid) = coldbench::demo::busy(dir.parent().unwrap());
+    println!("{} {txid}", busy.display());
 }

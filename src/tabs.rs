@@ -29,6 +29,13 @@ fn signed(unit: Unit, sats: i64) -> String {
     if sats > 0 { format!("+{s}") } else { s }
 }
 
+fn detail_room(avail: f32, has_detail: bool) -> f32 {
+    if !has_detail {
+        return (avail - ROW_H).max(80.0);
+    }
+    (avail - DETAIL_H - 8.0 - ROW_H).max(avail * 0.34 - ROW_H).max(80.0)
+}
+
 impl App {
     /// Run `f` with the cached views out of `self`, so tabs can read them and change the app.
     fn with_views(&mut self, ui: &mut Ui, f: impl FnOnce(&mut App, &mut Ui, &Views)) {
@@ -70,18 +77,16 @@ impl App {
     pub fn transactions(&mut self, ui: &mut Ui) {
         self.with_views(ui, |app, ui, v| {
             let unit = app.unit;
-            ui.horizontal_top(|ui| {
+            widgets::wrapping(ui, 24.0, |ui| {
                 let worth = app.worth(v.balance.total() as i64);
                 widgets::hero_sub(ui, "balance", &unit.format(v.balance.total() as i64), unit.label(), worth.as_deref(), TRACE);
-                ui.add_space(24.0);
-                let mut shown = Vec::new();
                 // Only while money is on its way in; change returning from our own spend is not
                 // news, and everything else is confirmed.
                 if v.balance.incoming > 0 {
-                    shown.push(("unconfirmed", app.with_worth(unit.format(v.balance.incoming as i64), v.balance.incoming as i64), WARN));
+                    let incoming = v.balance.incoming as i64;
+                    widgets::readout_sub(ui, "unconfirmed", &unit.format(incoming), app.worth(incoming).as_deref(), WARN);
                 }
-                shown.push(("transactions", v.txs.len().to_string(), VALUE));
-                readouts(ui, &shown);
+                widgets::readout_sub(ui, "transactions", &v.txs.len().to_string(), None, VALUE);
             });
             if v.txs.is_empty() {
                 section(ui, "no transactions", "nothing has been paid to this wallet yet", |ui| {
@@ -90,19 +95,17 @@ impl App {
                 return;
             }
             let has_detail = app.selected_tx.is_some_and(|t| v.txs.iter().any(|r| r.txid == t));
-            let room = ui.available_height() - if has_detail { DETAIL_H + 8.0 } else { 0.0 } - ROW_H;
+            let room = detail_room(ui.available_height(), has_detail);
             let price = app.price();
             let fiat_of = |sats: i64| price.as_ref().map(|(p, c)| units::fiat(sats, *p, c)).unwrap_or_default();
             let k = usize::from(price.is_some());
-            // The label is the column that can give: with a fiat column beside the value, a
-            // narrow window must not squeeze the date until it is cut off.
-            let label = if price.is_some() { 170.0 } else { 290.0 };
-            let mut cols = vec![("date", 140.0), ("label", label), ("value", 130.0)];
+            let mut cols = vec![("date", 140.0), ("label", 290.0), ("value", 130.0)];
             if let Some((_, c)) = &price {
-                cols.push((c.as_str(), 110.0));
+                let fiats: Vec<String> = v.txs.iter().map(|t| fiat_of(t.delta)).collect();
+                cols.push((c.as_str(), widgets::column_for(ui, fiats.iter().map(String::as_str), 110.0)));
             }
             cols.extend([("balance", 130.0), ("status", 100.0)]);
-            let picked = widgets::rows(ui, "txs", &cols, v.txs.len(), room.max(80.0), &|i| Some(v.txs[i].txid) == app.selected_tx, |i, p, r, at| {
+            let picked = widgets::rows(ui, "txs", &cols, widgets::Give { flex: &[1], spare: &[3 + k], height: room }, v.txs.len(), &|i| Some(v.txs[i].txid) == app.selected_tx, |i, p, r, at| {
                 let t = &v.txs[i];
                 let date = t.time.map(units::when).unwrap_or_else(|| "-".into());
                 at.put(p, r, 0, &date, VALUE);
@@ -123,9 +126,18 @@ impl App {
             let network = app.account().map(|a| a.network()).unwrap_or(Network::Bitcoin);
             let outputs = app.account().map(|a| a.outputs_of(&t.tx)).unwrap_or_default();
             let inputs = app.account().map(|a| a.inputs_of(&t.tx)).unwrap_or_default();
-            let txid = t.txid.to_string();
-            section(ui, "transaction", &units::short(&txid, 12), |ui| {
-                ui.set_min_height(DETAIL_H - 40.0);
+            let w = ui.available_width();
+            egui::ScrollArea::vertical().id_salt("tx detail").auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_max_width(w);
+                app.tx_detail(ui, t, network, &inputs, &outputs);
+            });
+        });
+    }
+
+    fn tx_detail(&mut self, ui: &mut Ui, t: &crate::engine::TxRow, network: Network, inputs: &[(String, Option<u64>, bool)], outputs: &[(String, u64, bool)]) {
+        let (unit, txid) = (self.unit, t.txid.to_string());
+        let app = self;
+        section(ui, "transaction", &units::short(&txid, 12), |ui| {
                 reading(ui, "txid", txid.clone());
                 let at = match (t.height, t.time) {
                     (Some(h), Some(tm)) => format!("block {h}, {}, {} confirmations", units::when(tm), t.confirmations),
@@ -159,13 +171,13 @@ impl App {
                     flow::flow(ui, &i, &o, h, &|v| unit.format(v as i64));
                     flow::key(ui, &[&i, &o]);
                 } else {
-                    for (addr, value, mine) in &outputs {
+                    for (addr, value, mine) in outputs {
                         let tag = if *mine { "  ours" } else { "" };
                         reading(ui, "output", format!("{} {}{tag}", app.with_worth(unit.with_unit(*value as i64), *value as i64), addr));
                     }
                 }
                 app.label_box(ui, &txid);
-                ui.horizontal(|ui| {
+                widgets::wrapping(ui, 8.0, |ui| {
                     if ui.add(Key::new("copy txid").outline(VALUE)).clicked() {
                         ui.ctx().copy_text(txid.clone());
                     }
@@ -173,18 +185,23 @@ impl App {
                         ui.ctx().open_url(egui::OpenUrl::new_tab(explorer(network, &txid)));
                     }
                     if Account::can_bump(t) {
-                        ui.add_space(12.0);
-                        Line::new().legend("new rate").show(ui);
-                        ui.allocate_ui(egui::vec2(70.0, KEY_H), |ui| {
-                            field(ui, &mut app.bump_rate, "sat/vB");
-                        });
-                        if ui.add(Key::new("bump fee").solid(READOUT)).on_hover_text("replace it with one that pays a higher fee").clicked() {
-                            app.bump(t.txid);
+                        let bump = Key::new("bump fee").solid(READOUT);
+                        let need = 80.0 + 70.0 + bump.width(ui) + 3.0 * ui.spacing().item_spacing.x;
+                        if ui.available_size_before_wrap().x < need {
+                            ui.end_row();
                         }
+                        ui.horizontal(|ui| {
+                            Line::new().legend("new rate").show(ui);
+                            ui.allocate_ui(egui::vec2(70.0, KEY_H), |ui| {
+                                field(ui, &mut app.bump_rate, "sat/vB");
+                            });
+                            if ui.add(bump).on_hover_text("replace it with one that pays a higher fee").clicked() {
+                                app.bump(t.txid);
+                            }
+                        });
                     }
                 });
             });
-        });
     }
 
     /// Lock the wallet file with a password, change it, or take it off.
@@ -498,18 +515,13 @@ impl App {
             }
             section(ui, "pays", "check these on the device before you approve", |ui| {
                 let sent: u64 = built.outputs.iter().filter(|o| !o.change && !o.decoy).map(|o| o.value).sum();
-                ui.horizontal_top(|ui| {
+                widgets::wrapping(ui, 24.0, |ui| {
                     let sub = price.as_ref().map(|(p, c)| units::fiat(sent as i64, *p, c));
                     widgets::hero_sub(ui, "sending", &unit.format(sent as i64), unit.label(), sub.as_deref(), VALUE);
-                    ui.add_space(24.0);
-                    readouts(
-                        ui,
-                        &[
-                            ("fee", worth(unit.format(built.fee as i64), built.fee as i64), VALUE),
-                            ("rate", format!("{:.1}", built.sat_per_vb), VALUE),
-                            ("signed", format!("{signed} of {inputs}"), if ready { OK } else { VALUE }),
-                        ],
-                    );
+                    let fee = price.as_ref().map(|(p, c)| units::fiat(built.fee as i64, *p, c));
+                    widgets::readout_sub(ui, "fee", &unit.format(built.fee as i64), fee.as_deref(), VALUE);
+                    widgets::readout_sub(ui, "rate", &format!("{:.1}", built.sat_per_vb), None, VALUE);
+                    widgets::readout_sub(ui, "signed", &format!("{signed} of {inputs}"), None, if ready { OK } else { VALUE });
                 });
                 for o in &built.outputs {
                     let tag = if o.decoy { "decoy" } else if o.change { "change" } else { "to" };
@@ -645,16 +657,17 @@ impl App {
             let rows = if chain == KeychainKind::External { &v.receive } else { &v.change };
             let selected = app.selected_addr.clone();
             let has_detail = selected.as_ref().is_some_and(|s| rows.iter().any(|r| &r.address == s));
-            let room = ui.available_height() - if has_detail { DETAIL_H } else { 0.0 } - ROW_H;
+            let room = detail_room(ui.available_height(), has_detail);
             let price = app.price();
             let fiat_of = |sats: i64| price.as_ref().map(|(p, c)| units::fiat(sats, *p, c)).unwrap_or_default();
             let k = usize::from(price.is_some());
             let mut cols = vec![("path", 120.0), ("address", 380.0), ("label", 220.0), ("balance", 130.0)];
             if let Some((_, c)) = &price {
-                cols.push((c.as_str(), 120.0));
+                let fiats: Vec<String> = rows.iter().map(|a| fiat_of(a.balance as i64)).collect();
+                cols.push((c.as_str(), widgets::column_for(ui, fiats.iter().map(String::as_str), 110.0)));
             }
             cols.push(("used", 60.0));
-            let picked = widgets::rows(ui, "addrs", &cols, rows.len(), room.max(80.0), &|i| selected.as_deref() == Some(&rows[i].address), |i, p, r, at| {
+            let picked = widgets::rows(ui, "addrs", &cols, widgets::Give { flex: &[1, 2], spare: &[4 + k, 0], height: room }, rows.len(), &|i| selected.as_deref() == Some(&rows[i].address), |i, p, r, at| {
                 let a = &rows[i];
                 at.put(p, r, 0, &format!("m/{}", a.path), LEGEND);
                 at.put(p, r, 1, &a.address, VALUE);
@@ -672,7 +685,18 @@ impl App {
             let Some(acc) = app.account() else { return };
             let script = acc.meta.script;
             let path = acc.full_path(a.keychain, a.index);
-            section(ui, "address", &format!("m/{}", a.path), |ui| {
+            let w = ui.available_width();
+            egui::ScrollArea::vertical().id_salt("addr detail").auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_max_width(w);
+                app.addr_detail(ui, &a, script, path);
+            });
+        });
+    }
+
+    fn addr_detail(&mut self, ui: &mut Ui, a: &crate::engine::AddrRow, script: hww::Script, path: bdk_wallet::bitcoin::bip32::DerivationPath) {
+        let unit = self.unit;
+        let app = self;
+        section(ui, "address", &format!("m/{}", a.path), |ui| {
                 reading(ui, "address", a.address.clone());
                 reading(ui, "balance", app.with_worth(unit.with_unit(a.balance as i64), a.balance as i64));
                 reading(ui, "paid", format!("{} times", a.received));
@@ -692,7 +716,6 @@ impl App {
                     }
                 });
             });
-        });
     }
 
     // ---- utxos ----
@@ -740,16 +763,17 @@ impl App {
                 return;
             }
             let single = (chosen.len() == 1).then(|| chosen[0].clone());
-            let room = ui.available_height() - if single.is_some() { 150.0 } else { 0.0 } - ROW_H;
+            let room = (ui.available_height() - if single.is_some() { 150.0 } else { 0.0 } - ROW_H).max(80.0);
             let price = app.price();
             let fiat_of = |sats: i64| price.as_ref().map(|(p, c)| units::fiat(sats, *p, c)).unwrap_or_default();
             let k = usize::from(price.is_some());
             let mut cols = vec![("", 26.0), ("output", 200.0), ("address", 330.0), ("label", 200.0), ("value", 130.0)];
             if let Some((_, c)) = &price {
-                cols.push((c.as_str(), 120.0));
+                let fiats: Vec<String> = v.utxos.iter().map(|u| fiat_of(u.value as i64)).collect();
+                cols.push((c.as_str(), widgets::column_for(ui, fiats.iter().map(String::as_str), 110.0)));
             }
             cols.push(("conf", 60.0));
-            let picked = widgets::rows(ui, "utxos", &cols, v.utxos.len(), room.max(80.0), &|i| app.selected_utxos.contains(&v.utxos[i].outpoint), |i, p, r, at| {
+            let picked = widgets::rows(ui, "utxos", &cols, widgets::Give { flex: &[2, 3], spare: &[1], height: room }, v.utxos.len(), &|i| app.selected_utxos.contains(&v.utxos[i].outpoint), |i, p, r, at| {
                 let u = &v.utxos[i];
                 let on = app.selected_utxos.contains(&u.outpoint);
                 let mark = if u.frozen { "f" } else if on { "x" } else { "" };

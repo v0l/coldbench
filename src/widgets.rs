@@ -6,22 +6,26 @@ use egui_bench::table;
 
 /// A table with a header and rows that answer clicks. `paint(i, painter, rect, x_of_column)`
 /// draws row `i`. Returns the row clicked, if any. Scrolls by itself, showing only visible rows.
+pub struct Give<'a> {
+    pub flex: &'a [usize],
+    pub spare: &'a [usize],
+    pub height: f32,
+}
+
 pub fn rows(
     ui: &mut Ui,
     id: &str,
     columns: &[(&str, f32)],
+    give: Give,
     n: usize,
-    height: f32,
     selected: &dyn Fn(usize) -> bool,
     mut paint: impl FnMut(usize, &egui::Painter, Rect, &Cols),
 ) -> Option<usize> {
     let width = ui.available_width();
-    // Columns shrink together when the window is narrower than they want.
-    let want: f32 = columns.iter().map(|(_, w)| w).sum::<f32>() + 12.0;
-    let k = (width / want).min(1.0);
-    let scaled: Vec<(&str, f32)> = columns.iter().map(|(n, w)| (*n, w * k)).collect();
+    let scaled: Vec<(&str, f32)> = columns.iter().map(|(n, _)| *n).zip(fit(columns, give.flex, give.spare, width)).collect();
     let (head, _) = ui.allocate_exact_size(Vec2::new(width, ROW_H), Sense::hover());
-    table::header(&ui.painter_at(head), head, &scaled);
+    let shown: Vec<(&str, f32)> = scaled.iter().copied().filter(|(_, w)| *w > 0.0).collect();
+    table::header(&ui.painter_at(head), head, &shown);
     let starts: Vec<(f32, f32)> = scaled
         .iter()
         .scan(6.0, |x, (_, w)| {
@@ -31,7 +35,7 @@ pub fn rows(
         })
         .collect();
     let mut clicked = None;
-    egui::ScrollArea::vertical().id_salt(id).max_height(height).auto_shrink([false, true]).show_rows(
+    egui::ScrollArea::vertical().id_salt(id).max_height(give.height).auto_shrink([false, true]).show_rows(
         ui,
         ROW_H,
         n,
@@ -56,6 +60,32 @@ pub fn rows(
     clicked
 }
 
+pub fn column_for<'a>(ui: &Ui, texts: impl Iterator<Item = &'a str>, least: f32) -> f32 {
+    let font = egui_bench::theme::figure(11.0);
+    texts.fold(least, |w, t| w.max(ui.painter().layout_no_wrap(t.to_owned(), font.clone(), egui::Color32::WHITE).size().x + 10.0))
+}
+
+pub fn fit(columns: &[(&str, f32)], flex: &[usize], spare: &[usize], width: f32) -> Vec<f32> {
+    const PAD: f32 = 12.0;
+    const LEAST: f32 = 70.0;
+    let mut w: Vec<f32> = columns.iter().map(|(_, w)| *w).collect();
+    let over = |w: &[f32]| w.iter().sum::<f32>() + PAD - width;
+    let give: f32 = flex.iter().map(|&i| (w[i] - LEAST).max(0.0)).sum();
+    if over(&w) > 0.0 && give > 0.0 {
+        let k = (over(&w) / give).min(1.0);
+        for &i in flex {
+            w[i] -= (w[i] - LEAST).max(0.0) * k;
+        }
+    }
+    for &i in spare {
+        if over(&w) > 0.0 {
+            w[i] = 0.0;
+        }
+    }
+    let k = ((width - PAD) / w.iter().sum::<f32>()).min(1.0);
+    w.iter().map(|x| x * k).collect()
+}
+
 /// Where each column of a row sits, after shrinking to fit.
 pub struct Cols<'a> {
     starts: &'a [(f32, f32)],
@@ -64,7 +94,7 @@ pub struct Cols<'a> {
 impl Cols<'_> {
     /// Put `text` in column `c` of row `r`.
     pub fn put(&self, p: &egui::Painter, r: Rect, c: usize, text: &str, colour: egui::Color32) {
-        if let Some((x, w)) = self.starts.get(c) {
+        if let Some((x, w)) = self.starts.get(c).filter(|(_, w)| *w > 0.0) {
             table::cell(p, r, r.left() + x, *w, text, colour);
         }
     }
@@ -122,6 +152,35 @@ pub fn hero_sub(ui: &mut Ui, label: &str, v: &str, unit: &str, sub: Option<&str>
     }
 }
 
+pub fn readout_sub(ui: &mut Ui, label: &str, v: &str, sub: Option<&str>, tint: egui::Color32) {
+    use egui_bench::prelude::{LEGEND, READOUT_W};
+    use egui_bench::theme::{self, LEGEND_SIZE};
+    let label_g = ui.painter().layout_no_wrap(label.to_uppercase(), theme::legend_font(LEGEND_SIZE), LEGEND);
+    let value_g = ui.painter().layout_no_wrap(v.to_owned(), theme::figure(17.0), tint);
+    let sub_g = sub.map(|t| ui.painter().layout_no_wrap(t.to_owned(), theme::figure(11.5), LEGEND));
+    let w = [Some(&label_g), Some(&value_g), sub_g.as_ref()].into_iter().flatten().fold(READOUT_W, |w, g| w.max(g.size().x));
+    let h = label_g.size().y + 2.0 + value_g.size().y + sub_g.as_ref().map_or(0.0, |g| g.size().y + 1.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let p = ui.painter();
+    let (lh, vh) = (label_g.size().y, value_g.size().y);
+    p.galley(rect.left_top(), label_g, LEGEND);
+    p.galley(egui::pos2(rect.left(), rect.top() + lh + 2.0), value_g, tint);
+    if let Some(g) = sub_g {
+        p.galley(egui::pos2(rect.left(), rect.top() + lh + 2.0 + vh + 1.0), g, LEGEND);
+    }
+}
+
+pub fn wrapping<R>(ui: &mut Ui, gap: f32, body: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true), |ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(gap, 8.0);
+        body(ui)
+    })
+    .inner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +189,37 @@ mod tests {
     fn bech32_is_upper_cased_in_the_uri() {
         assert_eq!(uri("bc1qabc"), "bitcoin:BC1QABC");
         assert_eq!(uri("3Abc"), "bitcoin:3Abc");
+    }
+
+    const TXS: [(&str, f32); 6] = [("date", 140.0), ("label", 290.0), ("value", 130.0), ("EUR", 110.0), ("balance", 130.0), ("status", 100.0)];
+
+    #[test]
+    fn amount_columns_keep_their_width_while_the_label_gives() {
+        let w = fit(&TXS, &[1], &[4], 760.0);
+        assert_eq!(&w[2..], &[130.0, 110.0, 130.0, 100.0]);
+        assert!(w.iter().sum::<f32>() + 12.0 <= 760.0 + 0.01);
+        assert!(w[1] >= 70.0);
+    }
+
+    #[test]
+    fn a_narrow_table_drops_the_spare_column_before_cutting_amounts() {
+        let w = fit(&TXS, &[1], &[4], 600.0);
+        assert_eq!(w[4], 0.0);
+        assert_eq!(&w[2..4], &[130.0, 110.0]);
+        assert!(w.iter().sum::<f32>() + 12.0 <= 600.0 + 0.01);
+    }
+
+    #[test]
+    fn every_column_shrinks_once_nothing_else_can_give() {
+        let cols = [("date", 140.0), ("label", 170.0), ("value", 130.0)];
+        let w = fit(&cols, &[1], &[], 300.0);
+        assert!((w.iter().sum::<f32>() + 12.0 - 300.0).abs() < 0.01);
+        assert!(w[0] < 140.0 && w[2] < 130.0);
+    }
+
+    #[test]
+    fn a_wide_table_keeps_what_it_asked_for() {
+        let cols = [("a", 100.0), ("b", 200.0)];
+        assert_eq!(fit(&cols, &[1], &[0], 2000.0), vec![100.0, 200.0]);
     }
 }
