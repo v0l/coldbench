@@ -427,3 +427,59 @@ fn an_encrypted_wallet_needs_its_password_and_stays_encrypted_when_saved() {
     assert!(!Account::is_locked(&file));
     assert_eq!(Account::load(&file).unwrap().meta.name, "again");
 }
+
+fn at_height(a: &mut Account, height: u32) {
+    use bdk_wallet::bitcoin::blockdata::constants::genesis_block;
+    use bdk_wallet::chain::{BlockId, CheckPoint};
+    let genesis = genesis_block(a.meta.network).block_hash();
+    let tip = CheckPoint::new(BlockId { height: 0, hash: genesis })
+        .push(BlockId { height, hash: bitcoin::BlockHash::from_raw_hash(bitcoin::hashes::Hash::hash(&[9])) })
+        .unwrap();
+    a.wallet.apply_update(bdk_wallet::Update { chain: Some(tip), ..Default::default() }).unwrap();
+}
+
+#[test]
+fn a_built_payment_fingerprints_as_core_and_sparrow() {
+    use crate::engine::analysis::{Software, fingerprint, follows_bip69};
+    let dir = tmp("blend");
+    let mut a = account(Script::Native, Network::Bitcoin, &dir);
+    at_height(&mut a, 850_000);
+    let mine = a.receive().address;
+    for i in 0..3 {
+        fund(&mut a, &mine, 40_000 + i * 1_000, 100 + i);
+    }
+    let to = a.parse_address("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").unwrap();
+    let mut bip69_runs = 0;
+    for _ in 0..20 {
+        let built = a
+            .build(&SendPlan { recipients: vec![(to.clone(), 90_123)], sat_per_vb: 5.0, rbf: true, ..Default::default() })
+            .unwrap();
+        let tx = &built.psbt.unsigned_tx;
+        assert_eq!(tx.version, transaction::Version::TWO);
+        let lock = tx.lock_time.to_consensus_u32();
+        assert!((849_900..=850_000).contains(&lock), "locktime {lock}");
+        assert!(tx.input.iter().all(|i| i.sequence == Sequence::ENABLE_RBF_NO_LOCKTIME));
+        let prevouts: Vec<TxOut> = built.psbt.inputs.iter().map(|i| i.witness_utxo.clone().unwrap()).collect();
+        let f = fingerprint(tx, &prevouts).unwrap();
+        assert!(f.wallets.contains(&Software::BitcoinCore) && f.wallets.contains(&Software::Sparrow), "{f:?}");
+        assert!(!f.wallets.contains(&Software::LedgerLive));
+        let (i, o) = follows_bip69(tx);
+        if i && o {
+            bip69_runs += 1;
+        }
+    }
+    assert!(bip69_runs < 20, "order must be shuffled, not sorted");
+}
+
+#[test]
+fn the_locktime_is_the_tip_or_up_to_99_below_it() {
+    let mut below = 0;
+    for _ in 0..2000 {
+        let l = blend_in_locktime(850_000);
+        assert!((849_901..=850_000).contains(&l));
+        if l < 850_000 {
+            below += 1;
+        }
+    }
+    assert!((60..=400).contains(&below), "about one in ten, got {below}");
+}

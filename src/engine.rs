@@ -611,8 +611,12 @@ impl Account {
             return Err("the fee rate must be at least 0.1 sat/vB".into());
         }
         let rate = FeeRate::from_sat_per_kwu((plan.sat_per_vb * 250.0).round() as u64);
+        let locktime = bitcoin::absolute::LockTime::from_height(blend_in_locktime(self.tip())).expect("a height");
         let mut b = self.wallet.build_tx();
         b.fee_rate(rate);
+        b.version(2);
+        b.nlocktime(locktime);
+        b.ordering(bdk_wallet::TxOrdering::Shuffle);
         if !plan.rbf {
             b.set_exact_sequence(Sequence::ENABLE_LOCKTIME_NO_RBF);
         }
@@ -742,6 +746,14 @@ impl Account {
     pub fn verify_message(&self, address: &str, message: &str, signature: &str) -> Result<bool, String> {
         verify_message(address, message, signature, self.meta.network)
     }
+}
+
+/// The locktime Bitcoin Core picks: the tip, and one time in ten a little lower, so a spend that
+/// was built late does not stand out.
+pub fn blend_in_locktime(tip: u32) -> u32 {
+    use bdk_wallet::bitcoin::secp256k1::rand::{Rng, thread_rng};
+    let mut rng = thread_rng();
+    if rng.gen_range(0..10) == 0 { tip.saturating_sub(rng.gen_range(0..100)) } else { tip }
 }
 
 /// Within a block (or the mempool) a transaction may spend another one beside it, and they share a
