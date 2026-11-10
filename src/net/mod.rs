@@ -17,6 +17,7 @@
 pub mod electrum;
 pub mod esplora;
 pub mod servers;
+pub mod trace;
 
 use bdk_wallet::KeychainKind;
 use bdk_wallet::bitcoin::block::Header;

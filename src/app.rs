@@ -178,6 +178,7 @@ pub enum Pending {
     Sync(PathBuf),
     Fees,
     Prices,
+    Trace,
     Broadcast { file: PathBuf, label: String },
 }
 
@@ -204,6 +205,8 @@ pub struct Views {
 
 pub struct App {
     pub tx_links: bool,
+    pub traced: Option<Vec<crate::engine::analysis::Finding>>,
+    pub trace_edit: u32,
     pub hub: Hub,
     inbox: Inbox,
     next: u64,
@@ -290,6 +293,8 @@ impl App {
             .unwrap_or_default();
         let mut app = App {
             tx_links: false,
+            traced: None,
+            trace_edit: 0,
             hub,
             inbox,
             next: 1,
@@ -434,6 +439,8 @@ impl App {
         self.shown_receive = None;
         self.server_edit = self.accounts[i].meta.server.clone();
         self.parallel_edit = self.accounts[i].meta.parallel.clamp(1, 32) as u32;
+        self.trace_edit = self.accounts[i].meta.trace_hops;
+        self.traced = None;
         self.name_edit = self.accounts[i].meta.name.clone();
         self.pw = PasswordEdit::default();
         self.label_key.clear();
@@ -452,6 +459,20 @@ impl App {
             (false, 1) => servers[0].label(),
             (false, n) => format!("{n} of your servers, addresses split"),
         }
+    }
+
+    pub fn trace_own(&mut self, i: usize) {
+        let a = &self.accounts[i];
+        let servers = a.meta.servers();
+        let Some(server) = crate::net::trace::own_esplora(&servers).filter(|_| !a.meta.spread()).cloned() else { return };
+        let start = a.recent_spends(10);
+        let hops = a.meta.trace_hops;
+        if hops == 0 || start.is_empty() {
+            return;
+        }
+        let id = self.id();
+        self.pending.insert(id, Pending::Trace);
+        self.hub.trace(id, server.url, start, hops);
     }
 
     pub fn syncing(&self, file: &Path) -> bool {
@@ -643,6 +664,7 @@ impl App {
                     }
             }
             (Pending::Fees, Outcome::Fees(f)) => self.fees = Some(f),
+            (Pending::Trace, Outcome::Traced(f)) => self.traced = Some(f),
             (Pending::Prices, Outcome::Prices(p)) => {
                 p.save(&self.dir.join("prices.json"));
                 self.prices = Some(p);
@@ -704,6 +726,7 @@ impl App {
                     created: units::now(),
                     last_sync: None,
                     labels: Default::default(),
+                    trace_hops: 0,
                 };
                 if let Some(i) = self.accounts.iter().position(|a| {
                     a.meta.xpub == meta.xpub && a.meta.network == meta.network

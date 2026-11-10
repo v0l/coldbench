@@ -141,6 +141,16 @@ impl Esplora {
         body.trim().parse().map_err(|_| NetError::Refused(format!("{}: {}", self.url, body.trim())))
     }
 
+    pub async fn spender(&self, txid: Txid, vout: u32) -> Result<Option<Txid>, NetError> {
+        #[derive(serde::Deserialize)]
+        struct Outspend {
+            spent: bool,
+            txid: Option<Txid>,
+        }
+        let o: Outspend = self.json(&format!("/tx/{txid}/outspend/{vout}")).await?;
+        Ok(o.txid.filter(|_| o.spent))
+    }
+
     pub async fn fees(&self) -> Result<std::collections::HashMap<u16, f64>, NetError> {
         let raw: std::collections::HashMap<String, f64> = self.json("/fee-estimates").await?;
         Ok(raw.into_iter().filter_map(|(k, v)| Some((k.parse().ok()?, v))).collect())

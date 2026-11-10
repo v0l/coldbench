@@ -41,6 +41,7 @@ pub(crate) fn account(script: Script, network: Network, dir: &Path) -> Account {
         created: 1,
         last_sync: None,
         labels: BTreeMap::new(),
+        trace_hops: 0,
     };
     Account::create(meta, dir).unwrap()
 }

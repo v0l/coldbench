@@ -38,6 +38,7 @@ pub enum Outcome {
     Fees(Fees),
     Prices(Prices),
     Broadcast(Txid),
+    Traced(Vec<crate::engine::analysis::Finding>),
     Devices(Vec<Found>),
     Cancelled,
     Failed(String),
@@ -286,6 +287,17 @@ impl Hub {
             };
             match hub.rt.block_on(pool.fees()) {
                 Ok(f) => Outcome::Fees(f),
+                Err(e) => Outcome::Failed(e),
+            }
+        });
+    }
+
+    pub fn trace(&self, id: u64, url: String, start: Vec<Txid>, hops: u32) {
+        let hub = self.clone();
+        self.spawn(id, Cancel::default(), move |_| {
+            let remote = crate::net::trace::Remote::new(&url, hub.rt.handle().clone());
+            match crate::net::trace::trace(&remote, &start, hops) {
+                Ok(f) => Outcome::Traced(f),
                 Err(e) => Outcome::Failed(e),
             }
         });

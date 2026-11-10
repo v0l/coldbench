@@ -40,6 +40,7 @@ pub fn meta(name: &str, account: u32, created: u64, server: &str) -> Meta {
         created,
         last_sync: None,
         labels: Default::default(),
+        trace_hops: 0,
     }
 }
 

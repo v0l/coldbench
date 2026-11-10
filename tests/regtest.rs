@@ -107,6 +107,7 @@ fn a_payment_confirms_and_a_fee_bump_replaces_it() {
         created: 1,
         last_sync: None,
         labels: Default::default(),
+        trace_hops: 0,
     };
     let mut a = Account::create(meta, &dir).unwrap();
 

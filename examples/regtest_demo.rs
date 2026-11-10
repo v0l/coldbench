@@ -45,6 +45,7 @@ fn main() {
         created: 1,
         last_sync: None,
         labels: Default::default(),
+        trace_hops: 0,
     };
     let mut a = Account::create(meta, &dir.join("wallets")).unwrap();
     println!("{}", a.receive().address);

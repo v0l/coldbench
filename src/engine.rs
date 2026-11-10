@@ -46,6 +46,8 @@ pub struct Meta {
     /// Notes the person wrote, keyed by txid, address or `txid:vout`.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    #[serde(default)]
+    pub trace_hops: u32,
 }
 
 /// Transactions held, those anchored at a height, and the last revealed index per keychain.
@@ -398,6 +400,10 @@ impl Account {
         }
         rows.reverse();
         rows
+    }
+
+    pub fn recent_spends(&self, n: usize) -> Vec<Txid> {
+        self.txs().into_iter().filter(|r| r.delta < 0).take(n).map(|r| r.txid).collect()
     }
 
     pub fn utxos(&self) -> Vec<UtxoRow> {

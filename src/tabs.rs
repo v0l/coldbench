@@ -927,6 +927,45 @@ impl App {
                     save_server = ui.add(Key::new("save and sync").solid(READOUT).enabled(ok)).clicked();
                 });
             });
+            let own_esplora = !spread && typed.iter().any(|(_, p)| p.as_ref().is_some_and(|s| s.protocol == crate::net::servers::Protocol::Esplora));
+            let mut run_trace = false;
+            section(ui, "tracing", "look for exchange payouts and peel chains near your coins", |ui| {
+                note(
+                    ui,
+                    "Off by default. When on, coldbench asks your own Esplora server for the transactions before and after your recent payments, \
+                     which tells that server which transactions you care about. It uses only the servers you listed above and never a public one.",
+                    WARN,
+                );
+                if !own_esplora {
+                    note(ui, "List your own https Esplora server above to use this.", LEGEND);
+                } else {
+                    row_help(ui, "hops", "0 is off. Each hop follows spends and funding one transaction further.", |ui| {
+                        ui.add(egui::Slider::new(&mut self.trace_edit, 0..=crate::net::trace::MAX_HOPS));
+                    });
+                    run_trace = ui.add(Key::new("trace now").outline(READOUT).enabled(self.trace_edit > 0)).clicked();
+                }
+                if let Some(found) = &self.traced {
+                    if found.is_empty() {
+                        note(ui, "nothing notable within those hops", LEGEND);
+                    }
+                    for f in found {
+                        let colour = match f.severity {
+                            Severity::Good => OK,
+                            Severity::Notice => WARN,
+                            Severity::Warning => FAULT,
+                        };
+                        Line::new().value(f.text.clone()).tint(colour).wrapped(ui);
+                    }
+                }
+            });
+            if self.accounts[i].meta.trace_hops != self.trace_edit {
+                self.accounts[i].meta.trace_hops = self.trace_edit;
+                let _ = self.accounts[i].save();
+            }
+            if run_trace {
+                self.traced = None;
+                self.trace_own(i);
+            }
             if let Some(r) = report {
                 section(ui, "last sync", &format!("{} addresses over {} servers", r.addresses, r.servers), |ui| {
                     let most = r.spread.values().copied().max().unwrap_or(0);
