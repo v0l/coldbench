@@ -16,6 +16,24 @@
 //!
 //! coldbench runs them on the user's own transactions so the user sees what an analyst would
 //! infer, before signing.
+//!
+//! Low-R signatures. Bitcoin Core grinds every ECDSA signature until R is below 0x80, so its
+//! DER signatures are never 71 bytes long, and the fingerprint treats a high R as proof the
+//! signer was not Core or Electrum. The device that signs decides this, not coldbench, and the
+//! review runs on the unsigned PSBT so it cannot see it:
+//!
+//! - Jade grinds: `sign_psbt` signs with `EC_FLAG_GRIND_R` (Blockstream/Jade, main/process/
+//!   sign_psbt.c). Only the anti-exfil path, which takes host entropy, cannot grind.
+//! - Coldcard grinds: `psbt.py` retries `ngu.secp256k1.sign(sk, digest, n)` until the DER
+//!   length byte is below 0x80, and says it does so to blend in with Core (Coldcard/firmware).
+//! - Trezor does not: Bitcoin signing calls `ecdsa_sign_digest` with no canonical check, so
+//!   the nonce is plain RFC 6979 and about half of all signatures have a high R
+//!   (trezor-firmware, crypto/zkp_ecdsa.c retries only when a caller passes `is_canonical`,
+//!   which Ethereum and EOS do).
+//!
+//! So a Jade or Coldcard spend can stay in the Core and Sparrow set, while a Trezor spend with n
+//! inputs shows a high R with probability 1 - 2^-n and then drops Core and Electrum, leaving
+//! Sparrow among the survivors. Checked against firmware sources on 2026-11-10.
 
 use bdk_wallet::bitcoin::{ScriptBuf, Transaction, TxOut};
 use std::collections::{BTreeSet, HashMap, HashSet};
