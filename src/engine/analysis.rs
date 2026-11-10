@@ -688,4 +688,6 @@ pub fn coin_risks(c: &CoinFacts) -> Vec<Finding> {
 }
 
 #[cfg(test)]
+mod real;
+#[cfg(test)]
 mod tests;
