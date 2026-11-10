@@ -96,6 +96,18 @@ impl App {
                 return;
             }
             ui.push_id("txview", |ui| segments(ui, &mut app.tx_links, &[(false, "list", None), (true, "links", None)]));
+            if let Some(found) = app.traced.as_ref().filter(|f| !f.is_empty()) {
+                section(ui, "traced", "from your own server, a few hops around your payments", |ui| {
+                    for f in found {
+                        let colour = match f.severity {
+                            Severity::Good => OK,
+                            Severity::Notice => WARN,
+                            Severity::Warning => FAULT,
+                        };
+                        Line::new().value(f.text.clone()).tint(colour).wrapped(ui);
+                    }
+                });
+            }
             if app.tx_links {
                 let g = app.account().map(|a| a.history_graph()).unwrap_or_default();
                 section(ui, "links", "your own history: lines join the coins a transaction spent", |ui| {
