@@ -52,6 +52,19 @@ fn main() {
         };
         a.add_sent(&tx, label).unwrap();
     }
+    let to = a.parse_address("bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq").unwrap();
+    let plan = coldbench::engine::SendPlan { recipients: vec![(to.clone(), 3_100_000)], sat_per_vb: 3.0, rbf: true, label: "rent".into(), ..Default::default() };
+    let built = a.build(&plan).unwrap();
+    let mut psbt = built.psbt.clone();
+    psbt.sign(&m, &secp).unwrap();
+    let tx = a.finalize(&psbt).unwrap();
+    a.add_sent(&tx, "rent").unwrap();
+    let plan = coldbench::engine::SendPlan { recipients: vec![(to, 90_000)], sat_per_vb: 3.0, rbf: true, label: "coffee beans".into(), ..Default::default() };
+    let built = a.build(&plan).unwrap();
+    let mut psbt = built.psbt.clone();
+    psbt.sign(&m, &secp).unwrap();
+    let tx = a.finalize(&psbt).unwrap();
+    a.add_sent(&tx, "coffee beans").unwrap();
     println!("{}", a.file().display());
     let (busy, txid) = coldbench::demo::busy(dir.parent().unwrap());
     println!("{} {txid}", busy.display());

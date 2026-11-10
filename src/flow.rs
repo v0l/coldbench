@@ -293,9 +293,11 @@ pub fn history(ui: &mut Ui, g: &crate::engine::graph::History) {
         if hover.is_some_and(|h| h.distance(c) < 10.0) {
             tip = Some(i);
         }
-        if !n.label.is_empty() {
-            p.text(c + vec2(r + 4.0, 0.0), egui::Align2::LEFT_CENTER, clip(&n.label, 18), figure(10.5), LEGEND);
-        }
+        let name = if n.label.is_empty() { format!("{}...", &n.txid.to_string()[..8]) } else { clip(&n.label, 18) };
+        let galley = p.layout_no_wrap(name, figure(10.5), LEGEND);
+        let at_text = c + vec2(r + 5.0, -galley.size().y / 2.0);
+        p.rect_filled(Rect::from_min_size(at_text, galley.size()).expand2(vec2(3.0, 1.0)), 2.0, WELL);
+        p.galley(at_text, galley, LEGEND);
     }
     if let Some(i) = tip {
         let n = &g.nodes[i];
