@@ -247,3 +247,79 @@ mod tests {
         assert_eq!(clip("abcdefghijkl", 8), "abcde...");
     }
 }
+
+pub fn history(ui: &mut Ui, g: &crate::engine::graph::History) {
+    let columns = g.columns().max(1);
+    let mut per_col = vec![0usize; columns];
+    let mut row_of = Vec::with_capacity(g.nodes.len());
+    for n in &g.nodes {
+        row_of.push(per_col[n.depth]);
+        per_col[n.depth] += 1;
+    }
+    let rows = per_col.iter().copied().max().unwrap_or(1);
+    let width = ui.available_width();
+    let height = (rows as f32 * 26.0 + 24.0).max(120.0);
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 2.0, WELL);
+    let step = ((width - 80.0) / columns as f32).clamp(60.0, 220.0);
+    let at = |i: usize| pos2(rect.left() + 40.0 + g.nodes[i].depth as f32 * step, rect.top() + 18.0 + row_of[i] as f32 * 26.0);
+    for e in &g.edges {
+        let (a, b) = (at(e.from), at(e.to));
+        let colour = if e.change { TRACE } else { LEGEND };
+        let mid = (a.x + b.x) / 2.0;
+        p.add(Shape::CubicBezier(egui::epaint::CubicBezierShape::from_points_stroke(
+            [a, pos2(mid, a.y), pos2(mid, b.y), b],
+            false,
+            Color32::TRANSPARENT,
+            egui::Stroke::new(1.5, colour.gamma_multiply(0.7)),
+        )));
+    }
+    let hover = resp.hover_pos();
+    let mut tip = None;
+    for (i, n) in g.nodes.iter().enumerate() {
+        let c = at(i);
+        let colour = if n.kyc {
+            FAULT
+        } else if n.merges > 1 {
+            egui_bench::prelude::WARN
+        } else if n.risks > 0 {
+            egui_bench::prelude::WARN
+        } else {
+            OK
+        };
+        let r = 3.0 + (n.merges.min(4) as f32);
+        p.circle_filled(c, r, colour);
+        if hover.is_some_and(|h| h.distance(c) < 10.0) {
+            tip = Some(i);
+        }
+        if !n.label.is_empty() {
+            p.text(c + vec2(r + 4.0, 0.0), egui::Align2::LEFT_CENTER, clip(&n.label, 18), figure(10.5), LEGEND);
+        }
+    }
+    if let Some(i) = tip {
+        let n = &g.nodes[i];
+        let mut line = format!("{}", &n.txid.to_string()[..10]);
+        if n.merges > 1 {
+            line.push_str(&format!(", merges {} sources", n.merges));
+        }
+        if n.kyc {
+            line.push_str(", KYC source");
+        }
+        if n.risks > 0 {
+            line.push_str(&format!(", {} warnings", n.risks));
+        }
+        resp.on_hover_text(line);
+    }
+}
+
+pub fn history_key(ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        for (c, t) in [(OK, "one source"), (egui_bench::prelude::WARN, "merges coins or has warnings"), (FAULT, "merges a KYC source"), (TRACE, "line is change")] {
+            let (dot, _) = ui.allocate_exact_size(vec2(10.0, 14.0), Sense::hover());
+            ui.painter().circle_filled(dot.center(), 3.5, c);
+            ui.label(egui::RichText::new(t).size(10.5).color(LEGEND));
+            ui.add_space(8.0);
+        }
+    });
+}

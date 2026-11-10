@@ -11,18 +11,18 @@ fn unhex(s: &str) -> Vec<u8> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
 }
 
-fn master(network: Network) -> Xpriv {
+pub(crate) fn master(network: Network) -> Xpriv {
     Xpriv::new_master(network, &unhex(SEED)).unwrap()
 }
 
-fn tmp(name: &str) -> PathBuf {
+pub(crate) fn tmp(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("wallet-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
 }
 
-fn account(script: Script, network: Network, dir: &Path) -> Account {
+pub(crate) fn account(script: Script, network: Network, dir: &Path) -> Account {
     let secp = Secp256k1::new();
     let m = master(network);
     let path = hww::account_path(script, network, 0);
@@ -46,7 +46,7 @@ fn account(script: Script, network: Network, dir: &Path) -> Account {
 }
 
 /// Pay `sats` to `address` from nowhere, as if a stranger had sent it.
-fn fund(a: &mut Account, address: &str, sats: u64, seen: u64) -> Txid {
+pub(crate) fn fund(a: &mut Account, address: &str, sats: u64, seen: u64) -> Txid {
     let addr = a.parse_address(address).unwrap();
     let tx = Transaction {
         version: transaction::Version::TWO,

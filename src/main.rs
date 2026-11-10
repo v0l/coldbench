@@ -62,6 +62,7 @@ fn main() -> eframe::Result<()> {
                 app.tab = coldbench::app::Tab::Transactions;
                 app.selected_tx = Some(t);
             }
+            app.tx_links = args.iter().any(|a| a == "--links");
             if args.iter().any(|a| a == "--prompt") {
                 app.preview_prompt();
             }

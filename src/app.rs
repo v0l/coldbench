@@ -203,6 +203,7 @@ pub struct Views {
 }
 
 pub struct App {
+    pub tx_links: bool,
     pub hub: Hub,
     inbox: Inbox,
     next: u64,
@@ -288,6 +289,7 @@ impl App {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
         let mut app = App {
+            tx_links: false,
             hub,
             inbox,
             next: 1,

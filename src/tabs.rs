@@ -95,6 +95,15 @@ impl App {
                 });
                 return;
             }
+            ui.push_id("txview", |ui| segments(ui, &mut app.tx_links, &[(false, "list", None), (true, "links", None)]));
+            if app.tx_links {
+                let g = app.account().map(|a| a.history_graph()).unwrap_or_default();
+                section(ui, "links", "your own history: lines join the coins a transaction spent", |ui| {
+                    egui::ScrollArea::both().auto_shrink([false, true]).show(ui, |ui| flow::history(ui, &g));
+                    flow::history_key(ui);
+                });
+                return;
+            }
             let has_detail = app.selected_tx.is_some_and(|t| v.txs.iter().any(|r| r.txid == t));
             let room = detail_room(ui.available_height(), has_detail);
             let price = app.price();

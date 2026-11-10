@@ -438,7 +438,7 @@ impl Account {
         rows
     }
 
-    fn input_label(&self, op: OutPoint) -> String {
+    pub(crate) fn input_label(&self, op: OutPoint) -> String {
         let own = self.label(&op.to_string());
         if own.is_empty() { self.label(&op.txid.to_string()) } else { own }.to_string()
     }
@@ -912,8 +912,9 @@ pub fn verify_message(address: &str, message: &str, signature: &str, network: Ne
 }
 
 pub mod analysis;
+pub mod graph;
 pub mod labels;
 mod stonewall;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
