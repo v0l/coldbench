@@ -85,6 +85,8 @@ fn transaction_detail_keys_are_reachable_in_a_small_window() {
             key.height() <= egui_bench::prelude::KEY_H + 0.5,
             "{size:?}: the bump fee key is squeezed onto two lines, {key:?}"
         );
+        h.state_mut().notice = None;
+        h.run_steps(2);
         h.get_by_label("bump fee").click();
         h.run_steps(4);
         assert_eq!(h.state().tab, Tab::Send, "{size:?}: clicking bump fee did nothing, said {:?}", h.state().notice.as_ref().map(|n| &n.1));
