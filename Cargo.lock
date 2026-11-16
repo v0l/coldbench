@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "coldbench"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "bdk_esplora",

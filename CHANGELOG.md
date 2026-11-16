@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-11-16
+
+- Chain analysis heuristics (change detection, common input ownership, coinjoin detection, wallet fingerprinting, payout shapes, ported from TRACEY) run on your own transactions. Coins an analyst could link are flagged, and the send screen shows what an analyst would see before you sign. Transaction building and Stonewall avoid the shapes they flag.
+- An optional N-hop trace follows a coin through your own server and lists what an analyst could learn, shown in the transaction findings.
+- The history link graph shows how your transactions connect, with readable labels instead of raw ids.
+
 - The add wallet, clear, freeze and send selected keys keep their width in a window under 900 px wide instead of wrapping letter by letter, and the header tabs move onto two rows to make room.
 
 - Signing, showing an address or signing a message with a Jade scans for it again if an earlier scan got no answer from the port, instead of failing with "no Jade found". The scan waits up to 4 seconds for the Jade to answer.
